@@ -7,6 +7,7 @@ export default function App() {
       <View style={styles.card}>
         <Text style={styles.eyebrow}>ANDROID · EXPO</Text>
         <Text style={styles.title}>Gym Tracker</Text>
+        <Text style={styles.greeting}>¡Hola mundo!</Text>
         <Text style={styles.subtitle}>
           Entorno preparado. Ya podemos empezar a construir.
         </Text>
@@ -42,6 +43,12 @@ const styles = StyleSheet.create({
     color: '#14251B',
     fontSize: 34,
     fontWeight: '800',
+  },
+  greeting: {
+    marginTop: 12,
+    color: '#287A4D',
+    fontSize: 22,
+    fontWeight: '700',
   },
   subtitle: {
     marginTop: 12,
