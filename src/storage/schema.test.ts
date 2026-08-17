@@ -49,6 +49,20 @@ describe('versioned local app state', () => {
     expect(state.weeklyRecords[getMondayDateKey(now)].strengthGoal).toBe(3);
   });
 
+  it('rejects invalid daily values instead of hydrating them as saved data', async () => {
+    const now = new Date(2026, 7, 17, 12, 0, 0);
+    const storage = new MemoryStorage();
+    await saveAppState(storage, createDefaultState(now));
+
+    const payload = JSON.parse(storage.value ?? '{}');
+    payload.state.dailyRecords[formatDateKey(now)].steps = -1;
+    storage.value = JSON.stringify(payload);
+
+    await expect(loadAppState(storage, now)).rejects.toThrow(
+      'La versión de los datos guardados no es compatible.',
+    );
+  });
+
   it('hydrates an existing snapshot without writing over it again', async () => {
     const now = new Date(2026, 7, 17, 12, 0, 0);
     const storage = new MemoryStorage();

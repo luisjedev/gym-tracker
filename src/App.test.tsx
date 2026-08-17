@@ -57,6 +57,118 @@ describe('Gym Tracker app flow', () => {
     await waitFor(() => expect(screen.getByText('Objetivo: 8.000 pasos')).toBeTruthy());
   });
 
+  it('records, replaces, and persists today\'s steps while showing progress', async () => {
+    const storage = new MemoryStorage();
+    const now = new Date(2026, 7, 17, 12, 0, 0);
+
+    const firstRender = await render(<App storage={storage} now={() => now} />);
+    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
+    expect(screen.getByText('0 / 7.000 pasos')).toBeTruthy();
+    expect(screen.getByText('Faltan 7.000 pasos')).toBeTruthy();
+
+    await fireEvent.changeText(screen.getByTestId('daily-steps-input'), '2500');
+    await fireEvent.press(screen.getByRole('button', { name: 'Guardar pasos' }));
+    await waitFor(() => expect(screen.getByText('2.500 / 7.000 pasos')).toBeTruthy());
+    expect(screen.getByText('Faltan 4.500 pasos')).toBeTruthy();
+
+    await fireEvent.changeText(screen.getByTestId('daily-steps-input'), '8000');
+    await fireEvent.press(screen.getByRole('button', { name: 'Guardar pasos' }));
+    await waitFor(() => expect(screen.getByText('8.000 / 7.000 pasos')).toBeTruthy());
+    expect(screen.getByText('Objetivo completado')).toBeTruthy();
+
+    await fireEvent.changeText(screen.getByTestId('daily-steps-input'), '3000');
+    await fireEvent.press(screen.getByRole('button', { name: 'Guardar pasos' }));
+    await waitFor(() => expect(screen.getByText('3.000 / 7.000 pasos')).toBeTruthy());
+    expect(screen.getByText('Faltan 4.000 pasos')).toBeTruthy();
+
+    await firstRender.unmount();
+    await render(<App storage={storage} now={() => now} />);
+    await waitFor(() => expect(screen.getByText('3.000 / 7.000 pasos')).toBeTruthy());
+  });
+
+  it('applies a changed goal from that day and preserves earlier daily snapshots', async () => {
+    const storage = new MemoryStorage();
+    let currentNow = new Date(2026, 7, 16, 12, 0, 0);
+    const now = () => currentNow;
+
+    let rendered = await render(<App storage={storage} now={now} />);
+    await waitFor(() => expect(screen.getByText('0 / 7.000 pasos')).toBeTruthy());
+    await fireEvent.press(screen.getByRole('button', { name: /Ajustes/ }));
+    await fireEvent.changeText(screen.getByTestId('daily-step-goal-input'), '6500');
+    await fireEvent.press(screen.getByRole('button', { name: 'Guardar objetivo' }));
+    await waitFor(() => expect(screen.getByText('Objetivo guardado')).toBeTruthy());
+    await rendered.unmount();
+
+    currentNow = new Date(2026, 7, 17, 12, 0, 0);
+    rendered = await render(<App storage={storage} now={now} />);
+    await waitFor(() => expect(screen.getByText('0 / 6.500 pasos')).toBeTruthy());
+    await fireEvent.press(screen.getByRole('button', { name: /Ajustes/ }));
+    await fireEvent.changeText(screen.getByTestId('daily-step-goal-input'), '8000');
+    await fireEvent.press(screen.getByRole('button', { name: 'Guardar objetivo' }));
+    await waitFor(() => expect(screen.getByText('Objetivo guardado')).toBeTruthy());
+    await fireEvent.press(screen.getByRole('button', { name: /Inicio/ }));
+    await waitFor(() => expect(screen.getByText('0 / 8.000 pasos')).toBeTruthy());
+    await rendered.unmount();
+
+    currentNow = new Date(2026, 7, 18, 12, 0, 0);
+    rendered = await render(<App storage={storage} now={now} />);
+    await waitFor(() => expect(screen.getByText('0 / 8.000 pasos')).toBeTruthy());
+    await rendered.unmount();
+
+    currentNow = new Date(2026, 7, 16, 12, 0, 0);
+    await render(<App storage={storage} now={now} />);
+    await waitFor(() => expect(screen.getByText('0 / 6.500 pasos')).toBeTruthy());
+  });
+
+  it('rejects invalid step totals and goals without presenting them as saved', async () => {
+    const storage = new MemoryStorage();
+
+    await render(<App storage={storage} now={() => new Date(2026, 7, 17, 12)} />);
+    await waitFor(() => expect(screen.getByText('0 / 7.000 pasos')).toBeTruthy());
+
+    await fireEvent.changeText(screen.getByTestId('daily-steps-input'), '-1');
+    await fireEvent.press(screen.getByRole('button', { name: 'Guardar pasos' }));
+    expect(
+      screen.getByText('Escribe un número entero de pasos igual o mayor que cero.'),
+    ).toBeTruthy();
+    expect(screen.getByText('0 / 7.000 pasos')).toBeTruthy();
+
+    await fireEvent.changeText(screen.getByTestId('daily-steps-input'), '1.5');
+    await fireEvent.press(screen.getByRole('button', { name: 'Guardar pasos' }));
+    expect(
+      screen.getByText('Escribe un número entero de pasos igual o mayor que cero.'),
+    ).toBeTruthy();
+    expect(screen.getByText('0 / 7.000 pasos')).toBeTruthy();
+
+    await fireEvent.press(screen.getByRole('button', { name: /Ajustes/ }));
+    await fireEvent.changeText(screen.getByTestId('daily-step-goal-input'), '');
+    await fireEvent.press(screen.getByRole('button', { name: 'Guardar objetivo' }));
+    expect(
+      screen.getByText('Escribe un número entero de pasos igual o mayor que cero.'),
+    ).toBeTruthy();
+    expect(screen.getByText('Objetivo diario: 7.000 pasos')).toBeTruthy();
+  });
+
+  it('keeps the previous steps when local storage rejects a write', async () => {
+    const storage = new MemoryStorage();
+
+    await render(<App storage={storage} now={() => new Date(2026, 7, 17, 12)} />);
+    await waitFor(() => expect(screen.getByText('0 / 7.000 pasos')).toBeTruthy());
+
+    storage.failWrites = true;
+    await fireEvent.changeText(screen.getByTestId('daily-steps-input'), '5000');
+    await fireEvent.press(screen.getByRole('button', { name: 'Guardar pasos' }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          'No se pudo guardar el cambio. Tus datos anteriores siguen intactos.',
+        ),
+      ).toBeTruthy(),
+    );
+    expect(screen.getByText('0 / 7.000 pasos')).toBeTruthy();
+  });
+
   it('shows the exercise library empty with the initial groups and filter controls', async () => {
     const storage = new MemoryStorage();
 

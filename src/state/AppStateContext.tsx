@@ -35,6 +35,7 @@ export interface AppStateContextValue {
   errorMessage: string | null;
   currentDay: DailyRecord | null;
   currentWeek: WeeklyRecord | null;
+  updateDailySteps(value: number): Promise<void>;
   updateDailyStepGoal(value: number): Promise<void>;
   createMuscleGroup(name: string): Promise<void>;
   updateMuscleGroup(id: string, name: string): Promise<void>;
@@ -362,9 +363,47 @@ export function AppStateProvider({
     return () => subscription.remove();
   }, [load]);
 
+  const updateDailySteps = useCallback(
+    async (value: number) => {
+      if (!Number.isSafeInteger(value) || value < 0) {
+        throw new Error('Los pasos deben ser un número entero no negativo.');
+      }
+
+      const currentState = stateRef.current;
+      if (!currentState) {
+        throw new Error('Los datos todavía se están cargando.');
+      }
+
+      const currentDate = now();
+      const currentDateKey = formatDateKey(currentDate);
+      const existingDay = currentState.dailyRecords[currentDateKey];
+      const nextDay: DailyRecord = existingDay ?? {
+        date: currentDateKey,
+        steps: null,
+        stepGoal: currentState.settings.dailyStepGoal,
+      };
+      const nextState = ensureCurrentPeriods(
+        {
+          ...currentState,
+          dailyRecords: {
+            ...currentState.dailyRecords,
+            [currentDateKey]: {
+              ...nextDay,
+              steps: value,
+            },
+          },
+        },
+        currentDate,
+      );
+
+      await persistState(nextState);
+    },
+    [now, persistState],
+  );
+
   const updateDailyStepGoal = useCallback(
     async (value: number) => {
-      if (!Number.isInteger(value) || value < 0) {
+      if (!Number.isSafeInteger(value) || value < 0) {
         throw new Error('El objetivo debe ser un número entero no negativo.');
       }
 
@@ -373,7 +412,8 @@ export function AppStateProvider({
         throw new Error('Los datos todavía se están cargando.');
       }
 
-      const currentDateKey = formatDateKey(now());
+      const currentDate = now();
+      const currentDateKey = formatDateKey(currentDate);
       const existingDay = currentState.dailyRecords[currentDateKey];
       const nextDay: DailyRecord = existingDay ?? {
         date: currentDateKey,
@@ -395,7 +435,7 @@ export function AppStateProvider({
             },
           },
         },
-        now(),
+        currentDate,
       );
 
       await persistState(nextState);
@@ -416,6 +456,7 @@ export function AppStateProvider({
       currentWeek: currentWeekStart
         ? state?.weeklyRecords[currentWeekStart] ?? null
         : null,
+      updateDailySteps,
       updateDailyStepGoal,
       createMuscleGroup,
       updateMuscleGroup,
@@ -438,6 +479,7 @@ export function AppStateProvider({
       load,
       state,
       status,
+      updateDailySteps,
       updateDailyStepGoal,
       updateExercise,
       updateMuscleGroup,

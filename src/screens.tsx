@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -19,6 +19,17 @@ import {
 
 export function formatNumber(value: number): string {
   return String(value).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+}
+
+function parseNonNegativeInteger(value: string): number | null {
+  const normalizedValue = value.trim();
+
+  if (!/^\d+$/.test(normalizedValue)) {
+    return null;
+  }
+
+  const parsedValue = Number(normalizedValue);
+  return Number.isSafeInteger(parsedValue) ? parsedValue : null;
 }
 
 function Screen({ title, children }: { title: string; children: ReactNode }) {
@@ -65,21 +76,59 @@ function StrengthSessionRow({ session }: { session: StrengthSession }) {
 }
 
 export function HomeScreen() {
-  const { state, currentDay, currentWeek } = useAppState();
+  const {
+    state,
+    currentDay,
+    currentWeek,
+    errorMessage,
+    updateDailySteps,
+  } = useAppState();
+  const [stepsInput, setStepsInput] = useState(
+    currentDay?.steps === null || currentDay?.steps === undefined
+      ? ''
+      : String(currentDay.steps),
+  );
+  const [stepsValidationError, setStepsValidationError] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Keep the form aligned with the local day when the app resumes or rehydrates.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setStepsInput(
+      currentDay?.steps === null || currentDay?.steps === undefined
+        ? ''
+        : String(currentDay.steps),
+    );
+    setStepsValidationError(null);
+  }, [currentDay?.date, currentDay?.steps]);
 
   if (!state) {
     return null;
   }
 
   const stepGoal = currentDay?.stepGoal ?? state.settings.dailyStepGoal;
-  const stepsText = currentDay?.steps === null || currentDay?.steps === undefined
-    ? 'Sin registrar'
-    : `${formatNumber(currentDay.steps)} pasos`;
+  const currentSteps = currentDay?.steps ?? 0;
+  const remainingSteps = Math.max(stepGoal - currentSteps, 0);
   const strengthSessions = currentWeek?.strengthSessions ?? state.settings.strengthSessions;
   const completedStrength = strengthSessions.filter((session) => session.completed).length;
   const strengthGoal = currentWeek?.strengthGoal ?? strengthSessions.length;
   const heatCompleted = currentWeek?.heatCompleted ?? 0;
   const heatGoal = currentWeek?.heatGoal ?? state.settings.heatWeeklyGoal;
+
+  async function handleSaveSteps() {
+    setStepsValidationError(null);
+    const parsedSteps = parseNonNegativeInteger(stepsInput);
+
+    if (parsedSteps === null) {
+      setStepsValidationError('Escribe un número entero de pasos igual o mayor que cero.');
+      return;
+    }
+
+    try {
+      await updateDailySteps(parsedSteps);
+    } catch {
+      // El contexto conserva el valor anterior y muestra el error de almacenamiento.
+    }
+  }
 
   return (
     <Screen title="Inicio">
@@ -87,13 +136,53 @@ export function HomeScreen() {
 
       <Card>
         <SectionLabel>Pasos de hoy</SectionLabel>
-        <Text style={styles.metricText}>{stepsText}</Text>
+        <Text style={styles.metricText}>
+          {formatNumber(currentSteps)} / {formatNumber(stepGoal)} pasos
+        </Text>
         <Text style={styles.supportText}>
           Objetivo: {formatNumber(stepGoal)} pasos
         </Text>
-        <Text style={styles.emptyText}>
-          Todavía no hay pasos registrados. Podrás añadirlos desde Inicio.
+        <Text style={styles.supportText}>
+          {remainingSteps > 0
+            ? `Faltan ${formatNumber(remainingSteps)} pasos`
+            : 'Objetivo completado'}
         </Text>
+        {currentDay?.steps === null || currentDay?.steps === undefined ? (
+          <Text style={styles.emptyText}>
+            Todavía no hay pasos registrados. Introduce el total de hoy.
+          </Text>
+        ) : null}
+        <TextInput
+          accessibilityLabel="Pasos de hoy"
+          autoCapitalize="none"
+          keyboardType="number-pad"
+          onChangeText={(value) => {
+            setStepsInput(value);
+            setStepsValidationError(null);
+          }}
+          placeholder="Número de pasos"
+          style={styles.input}
+          testID="daily-steps-input"
+          value={stepsInput}
+        />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Guardar pasos"
+          onPress={() => void handleSaveSteps()}
+          style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
+        >
+          <Text style={styles.primaryButtonText}>Guardar pasos</Text>
+        </Pressable>
+        {stepsValidationError ? (
+          <Text accessibilityRole="alert" style={styles.errorText}>
+            {stepsValidationError}
+          </Text>
+        ) : null}
+        {errorMessage ? (
+          <Text accessibilityRole="alert" style={styles.errorText}>
+            {errorMessage}
+          </Text>
+        ) : null}
       </Card>
 
       <Card>
@@ -845,6 +934,13 @@ export function SettingsScreen() {
   const [validationError, setValidationError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
+  useEffect(() => {
+    // Refresh the form when a new local day becomes current.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setGoal(String(currentGoal));
+    setValidationError(null);
+  }, [currentGoal]);
+
   if (!state) {
     return null;
   }
@@ -852,9 +948,9 @@ export function SettingsScreen() {
   async function handleSaveGoal() {
     setValidationError(null);
     setSuccessMessage(null);
-    const parsedGoal = Number(goal);
+    const parsedGoal = parseNonNegativeInteger(goal);
 
-    if (!Number.isInteger(parsedGoal) || parsedGoal < 0) {
+    if (parsedGoal === null) {
       setValidationError('Escribe un número entero de pasos igual o mayor que cero.');
       return;
     }

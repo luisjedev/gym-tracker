@@ -264,6 +264,19 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function isNonNegativeSafeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+function isValidDailyRecord(value: unknown): value is DailyRecord {
+  return (
+    isRecord(value) &&
+    typeof value.date === 'string' &&
+    (value.steps === null || isNonNegativeSafeInteger(value.steps)) &&
+    isNonNegativeSafeInteger(value.stepGoal)
+  );
+}
+
 function isValidState(value: unknown): value is AppState {
   if (!isRecord(value)) {
     return false;
@@ -274,9 +287,7 @@ function isValidState(value: unknown): value is AppState {
 
   return (
     isRecord(settings) &&
-    typeof settings.dailyStepGoal === 'number' &&
-    Number.isInteger(settings.dailyStepGoal) &&
-    settings.dailyStepGoal >= 0 &&
+    isNonNegativeSafeInteger(settings.dailyStepGoal) &&
     Array.isArray(settings.strengthSessions) &&
     typeof settings.heatWeeklyGoal === 'number' &&
     Number.isInteger(settings.heatWeeklyGoal) &&
@@ -291,6 +302,7 @@ function isValidState(value: unknown): value is AppState {
     Array.isArray(value.muscleGroups) &&
     Array.isArray(value.exercises) &&
     isRecord(value.dailyRecords) &&
+    Object.values(value.dailyRecords).every(isValidDailyRecord) &&
     isRecord(value.weeklyRecords) &&
     isRecord(fasting) &&
     (fasting.active === null || isRecord(fasting.active)) &&
