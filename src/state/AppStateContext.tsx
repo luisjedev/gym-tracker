@@ -40,6 +40,9 @@ export interface AppStateContextValue {
   updateDailySteps(value: number): Promise<void>;
   updateDailyStepGoal(value: number): Promise<void>;
   setStrengthSessionCompleted(id: string, completed: boolean): Promise<void>;
+  markHeatSessionCompleted(): Promise<void>;
+  undoHeatSession(): Promise<void>;
+  updateHeatWeeklyGoal(value: number): Promise<void>;
   updateStrengthConfiguration(sessions: StrengthSessionInput[]): Promise<void>;
   createMuscleGroup(name: string): Promise<void>;
   updateMuscleGroup(id: string, name: string): Promise<void>;
@@ -143,6 +146,7 @@ export function AppStateProvider({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const stateRef = useRef<AppState | null>(null);
   const strengthMutationQueueRef = useRef(Promise.resolve());
+  const heatMutationQueueRef = useRef(Promise.resolve());
 
   const load = useCallback(
     async (isInitialLoad: boolean) => {
@@ -219,6 +223,77 @@ export function AppStateProvider({
       });
       strengthMutationQueueRef.current = operation.catch(() => undefined);
       return operation;
+    },
+    [now, persistState],
+  );
+
+  const updateHeatCompletion = useCallback(
+    (delta: number) => {
+      const operation = heatMutationQueueRef.current.then(async () => {
+        const currentState = stateRef.current;
+        if (!currentState) {
+          throw new Error('Los datos todavía se están cargando.');
+        }
+
+        const currentDate = now();
+        const currentWeekStart = getMondayDateKey(currentDate);
+        const stateWithCurrentPeriods = ensureCurrentPeriods(currentState, currentDate);
+        const currentWeek = stateWithCurrentPeriods.weeklyRecords[currentWeekStart];
+        const heatCompleted = Math.min(
+          Math.max(currentWeek.heatCompleted + delta, 0),
+          currentWeek.heatGoal,
+        );
+
+        await persistState({
+          ...stateWithCurrentPeriods,
+          weeklyRecords: {
+            ...stateWithCurrentPeriods.weeklyRecords,
+            [currentWeekStart]: {
+              ...currentWeek,
+              heatCompleted,
+            },
+          },
+        });
+      });
+      heatMutationQueueRef.current = operation.catch(() => undefined);
+      return operation;
+    },
+    [now, persistState],
+  );
+
+  const markHeatSessionCompleted = useCallback(
+    () => updateHeatCompletion(1),
+    [updateHeatCompletion],
+  );
+
+  const undoHeatSession = useCallback(
+    () => updateHeatCompletion(-1),
+    [updateHeatCompletion],
+  );
+
+  const updateHeatWeeklyGoal = useCallback(
+    async (value: number) => {
+      if (!Number.isSafeInteger(value) || value < 0) {
+        throw new Error('El objetivo debe ser un número entero no negativo.');
+      }
+
+      const currentState = stateRef.current;
+      if (!currentState) {
+        throw new Error('Los datos todavía se están cargando.');
+      }
+
+      const nextState = ensureCurrentPeriods(
+        {
+          ...currentState,
+          settings: {
+            ...currentState.settings,
+            heatWeeklyGoal: value,
+          },
+        },
+        now(),
+      );
+
+      await persistState(nextState);
     },
     [now, persistState],
   );
@@ -563,6 +638,9 @@ export function AppStateProvider({
       updateDailySteps,
       updateDailyStepGoal,
       setStrengthSessionCompleted,
+      markHeatSessionCompleted,
+      undoHeatSession,
+      updateHeatWeeklyGoal,
       updateStrengthConfiguration,
       createMuscleGroup,
       updateMuscleGroup,
@@ -583,12 +661,15 @@ export function AppStateProvider({
       deleteMuscleGroup,
       errorMessage,
       load,
+      markHeatSessionCompleted,
       state,
       status,
       setStrengthSessionCompleted,
+      undoHeatSession,
       updateDailySteps,
       updateDailyStepGoal,
       updateExercise,
+      updateHeatWeeklyGoal,
       updateStrengthConfiguration,
       updateMuscleGroup,
     ],

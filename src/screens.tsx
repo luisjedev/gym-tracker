@@ -177,7 +177,9 @@ export function HomeScreen() {
     currentDay,
     currentWeek,
     errorMessage,
+    markHeatSessionCompleted,
     setStrengthSessionCompleted,
+    undoHeatSession,
     updateDailySteps,
   } = useAppState();
   const navigation = useNavigation<BottomTabNavigationProp<RootTabParamList>>();
@@ -216,6 +218,8 @@ export function HomeScreen() {
     : [];
   const heatCompleted = currentWeek?.heatCompleted ?? 0;
   const heatGoal = currentWeek?.heatGoal ?? state.settings.heatWeeklyGoal;
+  const heatStatus = getStrengthProgressStatus(heatCompleted, heatGoal);
+  const heatRemaining = Math.max(heatGoal - heatCompleted, 0);
 
   async function handleSaveSteps() {
     setStepsValidationError(null);
@@ -236,6 +240,22 @@ export function HomeScreen() {
   async function handleToggleStrengthSession(session: StrengthSession) {
     try {
       await setStrengthSessionCompleted(session.id, !session.completed);
+    } catch {
+      // El contexto conserva el valor anterior y muestra el error de almacenamiento.
+    }
+  }
+
+  async function handleMarkHeatSession() {
+    try {
+      await markHeatSessionCompleted();
+    } catch {
+      // El contexto conserva el valor anterior y muestra el error de almacenamiento.
+    }
+  }
+
+  async function handleUndoHeatSession() {
+    try {
+      await undoHeatSession();
     } catch {
       // El contexto conserva el valor anterior y muestra el error de almacenamiento.
     }
@@ -351,9 +371,38 @@ export function HomeScreen() {
         <Text style={styles.metricText}>
           {heatCompleted} / {heatGoal} sesiones
         </Text>
+        <Text style={styles.supportText}>Estado: {heatStatus}</Text>
         <Text style={styles.supportText}>
-          {heatCompleted === heatGoal ? 'Objetivo completado' : 'Aún pendiente'}
+          {heatRemaining > 0
+            ? `Quedan ${heatRemaining} sesiones`
+            : 'Objetivo completado'}
         </Text>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Marcar sesión HEAT como completada"
+          disabled={heatCompleted >= heatGoal}
+          onPress={() => void handleMarkHeatSession()}
+          style={({ pressed }) => [
+            styles.primaryButton,
+            heatCompleted >= heatGoal && styles.disabledButton,
+            pressed && styles.pressed,
+          ]}
+        >
+          <Text style={styles.primaryButtonText}>Marcar sesión HEAT</Text>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Revertir última marca de HEAT"
+          disabled={heatCompleted <= 0}
+          onPress={() => void handleUndoHeatSession()}
+          style={({ pressed }) => [
+            styles.secondaryButton,
+            heatCompleted <= 0 && styles.disabledSecondaryButton,
+            pressed && styles.pressed,
+          ]}
+        >
+          <Text style={styles.secondaryButtonText}>Revertir última marca</Text>
+        </Pressable>
       </Card>
 
       <Card>
@@ -1081,9 +1130,11 @@ export function SettingsScreen() {
     currentDay,
     errorMessage,
     updateDailyStepGoal,
+    updateHeatWeeklyGoal,
     updateStrengthConfiguration,
   } = useAppState();
   const currentGoal = currentDay?.stepGoal ?? state?.settings.dailyStepGoal ?? 0;
+  const configuredHeatGoal = state?.settings.heatWeeklyGoal ?? 0;
   const strengthSessions = useMemo(
     () => state?.settings.strengthSessions ?? [],
     [state?.settings.strengthSessions],
@@ -1091,6 +1142,9 @@ export function SettingsScreen() {
   const [goal, setGoal] = useState(String(currentGoal));
   const [validationError, setValidationError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [heatGoal, setHeatGoal] = useState(String(configuredHeatGoal));
+  const [heatValidationError, setHeatValidationError] = useState<string | null>(null);
+  const [heatSuccessMessage, setHeatSuccessMessage] = useState<string | null>(null);
   const [strengthSessionCount, setStrengthSessionCount] = useState(
     String(strengthSessions.length),
   );
@@ -1106,6 +1160,13 @@ export function SettingsScreen() {
     setGoal(String(currentGoal));
     setValidationError(null);
   }, [currentGoal]);
+
+  useEffect(() => {
+    // Refresh the HEAT form when the persisted configuration changes.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setHeatGoal(String(configuredHeatGoal));
+    setHeatValidationError(null);
+  }, [configuredHeatGoal]);
 
   useEffect(() => {
     // Keep the plan editor aligned with a persisted configuration.
@@ -1209,6 +1270,26 @@ export function SettingsScreen() {
     try {
       await updateDailyStepGoal(parsedGoal);
       setSuccessMessage('Objetivo guardado');
+    } catch {
+      // El contexto conserva el valor anterior y muestra el error de almacenamiento.
+    }
+  }
+
+  async function handleSaveHeatGoal() {
+    setHeatValidationError(null);
+    setHeatSuccessMessage(null);
+    const parsedGoal = parseNonNegativeInteger(heatGoal);
+
+    if (parsedGoal === null) {
+      setHeatValidationError(
+        'Escribe un número entero de sesiones HEAT igual o mayor que cero.',
+      );
+      return;
+    }
+
+    try {
+      await updateHeatWeeklyGoal(parsedGoal);
+      setHeatSuccessMessage('Objetivo HEAT guardado para la próxima semana');
     } catch {
       // El contexto conserva el valor anterior y muestra el error de almacenamiento.
     }
@@ -1326,10 +1407,43 @@ export function SettingsScreen() {
 
       <Card>
         <SectionLabel>HEAT semanal</SectionLabel>
-        <Text style={styles.metricText}>{state.settings.heatWeeklyGoal} sesión</Text>
         <Text style={styles.supportText}>
-          El objetivo inicial se guarda junto a cada semana.
+          Objetivo semanal: {formatNumber(configuredHeatGoal)}{' '}
+          {configuredHeatGoal === 1 ? 'sesión' : 'sesiones'}
         </Text>
+        <TextInput
+          accessibilityLabel="Objetivo semanal de HEAT"
+          autoCapitalize="none"
+          keyboardType="number-pad"
+          onChangeText={(value) => {
+            setHeatGoal(value);
+            setHeatValidationError(null);
+            setHeatSuccessMessage(null);
+          }}
+          placeholder="Número de sesiones HEAT"
+          style={styles.input}
+          testID="heat-weekly-goal-input"
+          value={heatGoal}
+        />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Guardar objetivo semanal de HEAT"
+          onPress={() => void handleSaveHeatGoal()}
+          style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
+        >
+          <Text style={styles.primaryButtonText}>Guardar objetivo HEAT</Text>
+        </Pressable>
+        <Text style={styles.supportText}>
+          Los cambios se aplicarán el próximo lunes y no modifican la semana actual.
+        </Text>
+        {heatValidationError ? (
+          <Text accessibilityRole="alert" style={styles.errorText}>
+            {heatValidationError}
+          </Text>
+        ) : null}
+        {heatSuccessMessage ? (
+          <Text style={styles.successText}>{heatSuccessMessage}</Text>
+        ) : null}
       </Card>
 
       <Card>
@@ -1613,6 +1727,13 @@ const styles = StyleSheet.create({
     color: '#287A4D',
     fontSize: 17,
     fontWeight: '800',
+  },
+  disabledButton: {
+    backgroundColor: '#A7B8AD',
+  },
+  disabledSecondaryButton: {
+    backgroundColor: '#F0F3F1',
+    borderColor: '#DCE8DF',
   },
   smallActionButton: {
     borderColor: '#CDE3D4',

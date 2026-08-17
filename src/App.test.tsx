@@ -645,7 +645,7 @@ describe('Gym Tracker app flow', () => {
     await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
 
     expect(screen.getByText('0 / 3 sesiones')).toBeTruthy();
-    expect(screen.getByText('Estado: Pendiente')).toBeTruthy();
+    expect(screen.getAllByText('Estado: Pendiente')).toHaveLength(2);
     expect(screen.getByText('Próxima sesión')).toBeTruthy();
     expect(
       screen.getByText('Grupos musculares: Pecho, Hombro, Tríceps'),
@@ -705,7 +705,7 @@ describe('Gym Tracker app flow', () => {
       }),
     );
     await waitFor(() => expect(screen.getByText('0 / 3 sesiones')).toBeTruthy());
-    expect(screen.getByText('Estado: Pendiente')).toBeTruthy();
+    expect(screen.getAllByText('Estado: Pendiente')).toHaveLength(2);
 
     await fireEvent.press(
       screen.getByRole('button', {
@@ -842,5 +842,114 @@ describe('Gym Tracker app flow', () => {
     currentNow = new Date(2026, 7, 16, 12, 0, 0);
     await render(<App storage={storage} now={now} />);
     await waitFor(() => expect(screen.getByText('1 / 3 sesiones')).toBeTruthy());
+  });
+
+  it('shows, caps, corrects, and persists the weekly HEAT checklist', async () => {
+    const storage = new MemoryStorage();
+    const now = new Date(2026, 7, 17, 12, 0, 0);
+
+    const firstRender = await render(<App storage={storage} now={() => now} />);
+    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
+
+    expect(screen.getByText('0 / 1 sesiones')).toBeTruthy();
+    expect(screen.getAllByText('Estado: Pendiente')).toHaveLength(2);
+    expect(
+      screen.getByRole('button', { name: 'Marcar sesión HEAT como completada' }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: 'Revertir última marca de HEAT' }),
+    ).toBeTruthy();
+
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Marcar sesión HEAT como completada' }),
+    );
+    await waitFor(() => expect(screen.getByText('1 / 1 sesiones')).toBeTruthy());
+    expect(screen.getByText('Estado: Completado')).toBeTruthy();
+
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Marcar sesión HEAT como completada' }),
+    );
+    expect(screen.getByText('1 / 1 sesiones')).toBeTruthy();
+
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Revertir última marca de HEAT' }),
+    );
+    await waitFor(() => expect(screen.getByText('0 / 1 sesiones')).toBeTruthy());
+    expect(screen.getAllByText('Estado: Pendiente')).toHaveLength(2);
+
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Revertir última marca de HEAT' }),
+    );
+    expect(screen.getByText('0 / 1 sesiones')).toBeTruthy();
+
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Marcar sesión HEAT como completada' }),
+    );
+    await waitFor(() => expect(screen.getByText('1 / 1 sesiones')).toBeTruthy());
+    await firstRender.unmount();
+
+    await render(<App storage={storage} now={() => now} />);
+    await waitFor(() => expect(screen.getByText('1 / 1 sesiones')).toBeTruthy());
+    expect(screen.getByText('Estado: Completado')).toBeTruthy();
+  });
+
+  it('applies a changed HEAT goal on Monday without rewriting the previous week', async () => {
+    const storage = new MemoryStorage();
+    let currentNow = new Date(2026, 7, 16, 12, 0, 0);
+    const now = () => currentNow;
+
+    let rendered = await render(<App storage={storage} now={now} />);
+    await waitFor(() => expect(screen.getByText('0 / 1 sesiones')).toBeTruthy());
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Marcar sesión HEAT como completada' }),
+    );
+    await waitFor(() => expect(screen.getByText('1 / 1 sesiones')).toBeTruthy());
+
+    await fireEvent.press(screen.getByRole('button', { name: /Ajustes/ }));
+    await waitFor(() =>
+      expect(screen.getByTestId('heat-weekly-goal-input')).toBeTruthy(),
+    );
+    await fireEvent.changeText(
+      screen.getByTestId('heat-weekly-goal-input'),
+      '-1',
+    );
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Guardar objetivo semanal de HEAT' }),
+    );
+    expect(
+      screen.getByText(
+        'Escribe un número entero de sesiones HEAT igual o mayor que cero.',
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText('Objetivo semanal: 1 sesión')).toBeTruthy();
+
+    await fireEvent.changeText(
+      screen.getByTestId('heat-weekly-goal-input'),
+      '3',
+    );
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Guardar objetivo semanal de HEAT' }),
+    );
+    await waitFor(() =>
+      expect(screen.getByText('Objetivo HEAT guardado para la próxima semana')).toBeTruthy(),
+    );
+
+    await fireEvent.press(screen.getByRole('button', { name: /Inicio/ }));
+    await waitFor(() => expect(screen.getByText('1 / 1 sesiones')).toBeTruthy());
+    await rendered.unmount();
+
+    currentNow = new Date(2026, 7, 17, 12, 0, 0);
+    rendered = await render(<App storage={storage} now={now} />);
+    await waitFor(() => expect(screen.getAllByText('0 / 3 sesiones')).toHaveLength(2));
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Marcar sesión HEAT como completada' }),
+    );
+    await waitFor(() => expect(screen.getByText('1 / 3 sesiones')).toBeTruthy());
+    await rendered.unmount();
+
+    currentNow = new Date(2026, 7, 16, 12, 0, 0);
+    await render(<App storage={storage} now={now} />);
+    await waitFor(() => expect(screen.getByText('1 / 1 sesiones')).toBeTruthy());
+    expect(screen.getByText('Estado: Completado')).toBeTruthy();
   });
 });

@@ -282,6 +282,21 @@ function isValidDailyRecord(value: unknown): value is DailyRecord {
   );
 }
 
+function isValidWeeklyRecord(value: unknown): value is WeeklyRecord {
+  if (
+    !isRecord(value) ||
+    typeof value.weekStart !== 'string' ||
+    !isNonNegativeSafeInteger(value.strengthGoal) ||
+    !Array.isArray(value.strengthSessions) ||
+    !isNonNegativeSafeInteger(value.heatGoal) ||
+    !isNonNegativeSafeInteger(value.heatCompleted)
+  ) {
+    return false;
+  }
+
+  return value.heatCompleted <= value.heatGoal;
+}
+
 function isValidState(value: unknown): value is AppState {
   if (!isRecord(value)) {
     return false;
@@ -309,6 +324,7 @@ function isValidState(value: unknown): value is AppState {
     isRecord(value.dailyRecords) &&
     Object.values(value.dailyRecords).every(isValidDailyRecord) &&
     isRecord(value.weeklyRecords) &&
+    Object.values(value.weeklyRecords).every(isValidWeeklyRecord) &&
     isRecord(fasting) &&
     (fasting.active === null || isRecord(fasting.active)) &&
     Array.isArray(fasting.completed)

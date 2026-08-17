@@ -76,4 +76,19 @@ describe('versioned local app state', () => {
     expect(hydrated.settings.dailyStepGoal).toBe(8_000);
     expect(storage.writes).toBe(writesBeforeHydration);
   });
+
+  it('rejects a weekly HEAT snapshot that exceeds its saved goal', async () => {
+    const now = new Date(2026, 7, 17, 12, 0, 0);
+    const storage = new MemoryStorage();
+    await saveAppState(storage, createDefaultState(now));
+
+    const payload = JSON.parse(storage.value ?? '{}');
+    const weekStart = getMondayDateKey(now);
+    payload.state.weeklyRecords[weekStart].heatCompleted = 2;
+    storage.value = JSON.stringify(payload);
+
+    await expect(loadAppState(storage, now)).rejects.toThrow(
+      'La versión de los datos guardados no es compatible.',
+    );
+  });
 });
