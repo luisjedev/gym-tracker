@@ -20,8 +20,10 @@ import {
   normalizeEntityName,
   saveAppState,
   type AppState,
-  type NewExerciseInput,
   type DailyRecord,
+  type NewExerciseInput,
+  type StrengthSession,
+  type StrengthSessionInput,
   type WeeklyRecord,
 } from '../storage/schema';
 
@@ -37,6 +39,8 @@ export interface AppStateContextValue {
   currentWeek: WeeklyRecord | null;
   updateDailySteps(value: number): Promise<void>;
   updateDailyStepGoal(value: number): Promise<void>;
+  setStrengthSessionCompleted(id: string, completed: boolean): Promise<void>;
+  updateStrengthConfiguration(sessions: StrengthSessionInput[]): Promise<void>;
   createMuscleGroup(name: string): Promise<void>;
   updateMuscleGroup(id: string, name: string): Promise<void>;
   deleteMuscleGroup(id: string): Promise<void>;
@@ -88,6 +92,45 @@ function normalizeExerciseInput(
   };
 }
 
+function normalizeStrengthConfiguration(
+  currentState: AppState,
+  sessions: StrengthSessionInput[],
+): StrengthSession[] {
+  if (sessions.length < 1 || sessions.length > 7) {
+    throw new Error('El plan semanal debe tener entre 1 y 7 sesiones.');
+  }
+
+  const muscleGroupIds = new Set(currentState.muscleGroups.map((group) => group.id));
+  const usedSessionIds = currentState.settings.strengthSessions.map(
+    (session) => session.id,
+  );
+
+  return sessions.map((session, index) => {
+    const normalizedGroupIds = [...new Set(session.muscleGroupIds)];
+
+    if (normalizedGroupIds.length === 0) {
+      throw new Error(`Asigna al menos un grupo muscular a la sesión ${index + 1}.`);
+    }
+
+    if (normalizedGroupIds.some((id) => !muscleGroupIds.has(id))) {
+      throw new Error(`La sesión ${index + 1} contiene un grupo muscular no válido.`);
+    }
+
+    const existingSession = currentState.settings.strengthSessions[index];
+    const id = existingSession?.id ?? createUniqueId('strength', usedSessionIds);
+    if (!usedSessionIds.includes(id)) {
+      usedSessionIds.push(id);
+    }
+
+    return {
+      id,
+      name: normalizeEntityName(session.name ?? '') || `Sesión ${index + 1}`,
+      muscleGroupIds: normalizedGroupIds,
+      completed: false,
+    };
+  });
+}
+
 const AppStateContext = createContext<AppStateContextValue | null>(null);
 
 export function AppStateProvider({
@@ -99,6 +142,7 @@ export function AppStateProvider({
   const [status, setStatus] = useState<AppLoadStatus>('loading');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const stateRef = useRef<AppState | null>(null);
+  const strengthMutationQueueRef = useRef(Promise.resolve());
 
   const load = useCallback(
     async (isInitialLoad: boolean) => {
@@ -141,6 +185,66 @@ export function AppStateProvider({
       }
     },
     [storage],
+  );
+
+  const setStrengthSessionCompleted = useCallback(
+    (id: string, completed: boolean) => {
+      const operation = strengthMutationQueueRef.current.then(async () => {
+        const currentState = stateRef.current;
+        if (!currentState) {
+          throw new Error('Los datos todavía se están cargando.');
+        }
+
+        const currentDate = now();
+        const currentWeekStart = getMondayDateKey(currentDate);
+        const stateWithCurrentPeriods = ensureCurrentPeriods(currentState, currentDate);
+        const currentWeek = stateWithCurrentPeriods.weeklyRecords[currentWeekStart];
+
+        if (!currentWeek.strengthSessions.some((session) => session.id === id)) {
+          throw new Error('No se encontró la sesión de fuerza.');
+        }
+
+        await persistState({
+          ...stateWithCurrentPeriods,
+          weeklyRecords: {
+            ...stateWithCurrentPeriods.weeklyRecords,
+            [currentWeekStart]: {
+              ...currentWeek,
+              strengthSessions: currentWeek.strengthSessions.map((session) =>
+                session.id === id ? { ...session, completed } : session,
+              ),
+            },
+          },
+        });
+      });
+      strengthMutationQueueRef.current = operation.catch(() => undefined);
+      return operation;
+    },
+    [now, persistState],
+  );
+
+  const updateStrengthConfiguration = useCallback(
+    async (sessions: StrengthSessionInput[]) => {
+      const currentState = stateRef.current;
+      if (!currentState) {
+        throw new Error('Los datos todavía se están cargando.');
+      }
+
+      const normalizedSessions = normalizeStrengthConfiguration(currentState, sessions);
+      const nextState = ensureCurrentPeriods(
+        {
+          ...currentState,
+          settings: {
+            ...currentState.settings,
+            strengthSessions: normalizedSessions,
+          },
+        },
+        now(),
+      );
+
+      await persistState(nextState);
+    },
+    [now, persistState],
   );
 
   const createMuscleGroup = useCallback(
@@ -458,6 +562,8 @@ export function AppStateProvider({
         : null,
       updateDailySteps,
       updateDailyStepGoal,
+      setStrengthSessionCompleted,
+      updateStrengthConfiguration,
       createMuscleGroup,
       updateMuscleGroup,
       deleteMuscleGroup,
@@ -479,9 +585,11 @@ export function AppStateProvider({
       load,
       state,
       status,
+      setStrengthSessionCompleted,
       updateDailySteps,
       updateDailyStepGoal,
       updateExercise,
+      updateStrengthConfiguration,
       updateMuscleGroup,
     ],
   );

@@ -11,13 +11,7 @@ import {
   StorageErrorScreen,
 } from '../screens';
 import { useAppState } from '../state/AppStateContext';
-
-export type RootTabParamList = {
-  Home: undefined;
-  Exercises: undefined;
-  History: undefined;
-  Settings: undefined;
-};
+import type { RootTabParamList } from './types';
 
 const Tab = createBottomTabNavigator<RootTabParamList>();
 

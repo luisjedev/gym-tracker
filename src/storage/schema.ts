@@ -23,6 +23,11 @@ export interface StrengthSession {
   completed: boolean;
 }
 
+export interface StrengthSessionInput {
+  name?: string;
+  muscleGroupIds: string[];
+}
+
 export interface WaterSettings {
   enabled: boolean;
   startTime: string;

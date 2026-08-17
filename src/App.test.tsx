@@ -636,4 +636,211 @@ describe('Gym Tracker app flow', () => {
     expect(screen.queryByText('Objetivo guardado')).toBeNull();
     await rendered.unmount();
   });
+
+  it('shows, completes, corrects, and persists the weekly strength checklist', async () => {
+    const storage = new MemoryStorage();
+    const now = new Date(2026, 7, 17, 12, 0, 0);
+
+    const firstRender = await render(<App storage={storage} now={() => now} />);
+    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
+
+    expect(screen.getByText('0 / 3 sesiones')).toBeTruthy();
+    expect(screen.getByText('Estado: Pendiente')).toBeTruthy();
+    expect(screen.getByText('Próxima sesión')).toBeTruthy();
+    expect(
+      screen.getByText('Grupos musculares: Pecho, Hombro, Tríceps'),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole('button', {
+        name: 'Marcar sesión Pecho/Hombro/Tríceps como completada',
+      }),
+    ).toBeTruthy();
+
+    await fireEvent.press(
+      screen.getByRole('button', {
+        name: 'Abrir grupo Pecho de la próxima sesión',
+      }),
+    );
+    await waitFor(() => expect(screen.getByText('Filtro: Pecho')).toBeTruthy());
+
+    await fireEvent.press(screen.getByRole('button', { name: 'Crear ejercicio' }));
+    await fireEvent.changeText(screen.getByTestId('exercise-name-input'), 'Press banca');
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Seleccionar grupo Pecho' }),
+    );
+    await fireEvent.press(screen.getByRole('button', { name: 'Guardar ejercicio' }));
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Abrir detalle de Press banca' }),
+      ).toBeTruthy(),
+    );
+
+    await fireEvent.press(screen.getByRole('button', { name: 'Crear ejercicio' }));
+    await fireEvent.changeText(screen.getByTestId('exercise-name-input'), 'Remo');
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Seleccionar grupo Espalda' }),
+    );
+    await fireEvent.press(screen.getByRole('button', { name: 'Guardar ejercicio' }));
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Abrir detalle de Remo' })).toBeNull(),
+    );
+    expect(
+      screen.getByRole('button', { name: 'Abrir detalle de Press banca' }),
+    ).toBeTruthy();
+
+    await fireEvent.press(screen.getByRole('button', { name: /Inicio/ }));
+    await waitFor(() => expect(screen.getByText('0 / 3 sesiones')).toBeTruthy());
+    await fireEvent.press(
+      screen.getByRole('button', {
+        name: 'Marcar sesión Pecho/Hombro/Tríceps como completada',
+      }),
+    );
+    await waitFor(() => expect(screen.getByText('1 / 3 sesiones')).toBeTruthy());
+    expect(screen.getByText('Estado: Parcial')).toBeTruthy();
+    expect(screen.getByText('Grupos musculares: Espalda, Bíceps')).toBeTruthy();
+
+    await fireEvent.press(
+      screen.getByRole('button', {
+        name: 'Desmarcar sesión Pecho/Hombro/Tríceps',
+      }),
+    );
+    await waitFor(() => expect(screen.getByText('0 / 3 sesiones')).toBeTruthy());
+    expect(screen.getByText('Estado: Pendiente')).toBeTruthy();
+
+    await fireEvent.press(
+      screen.getByRole('button', {
+        name: 'Marcar sesión Pecho/Hombro/Tríceps como completada',
+      }),
+    );
+    await waitFor(() => expect(screen.getByText('1 / 3 sesiones')).toBeTruthy());
+    await fireEvent.press(
+      screen.getByRole('button', {
+        name: 'Marcar sesión Espalda/Bíceps como completada',
+      }),
+    );
+    await waitFor(() => expect(screen.getByText('2 / 3 sesiones')).toBeTruthy());
+    expect(
+      screen.getByRole('button', { name: 'Desmarcar sesión Espalda/Bíceps' }),
+    ).toBeTruthy();
+
+    await fireEvent.press(
+      screen.getByRole('button', {
+        name: 'Desmarcar sesión Pecho/Hombro/Tríceps',
+      }),
+    );
+    await waitFor(() => expect(screen.getByText('1 / 3 sesiones')).toBeTruthy());
+    expect(
+      screen.getByRole('button', { name: 'Desmarcar sesión Espalda/Bíceps' }),
+    ).toBeTruthy();
+
+    await fireEvent.press(
+      screen.getByRole('button', {
+        name: 'Marcar sesión Pecho/Hombro/Tríceps como completada',
+      }),
+    );
+    await fireEvent.press(
+      screen.getByRole('button', {
+        name: 'Marcar sesión Piernas como completada',
+      }),
+    );
+    await waitFor(() => expect(screen.getByText('3 / 3 sesiones')).toBeTruthy());
+    expect(screen.getByText('Estado: Completado')).toBeTruthy();
+    expect(screen.getByText('Todas las sesiones están completadas.')).toBeTruthy();
+    await firstRender.unmount();
+
+    await render(<App storage={storage} now={() => now} />);
+    await waitFor(() => expect(screen.getByText('3 / 3 sesiones')).toBeTruthy());
+    expect(screen.getByText('Estado: Completado')).toBeTruthy();
+  });
+
+  it('rejects an invalid weekly strength plan without changing the current week', async () => {
+    const storage = new MemoryStorage();
+
+    await render(
+      <App storage={storage} now={() => new Date(2026, 7, 17, 12, 0, 0)} />,
+    );
+    await waitFor(() => expect(screen.getByText('0 / 3 sesiones')).toBeTruthy());
+    await fireEvent.press(screen.getByRole('button', { name: /Ajustes/ }));
+    await waitFor(() =>
+      expect(screen.getByTestId('strength-session-count-input')).toBeTruthy(),
+    );
+    await fireEvent.changeText(
+      screen.getByTestId('strength-session-count-input'),
+      '0',
+    );
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Guardar plan semanal de fuerza' }),
+    );
+
+    expect(
+      screen.getByText('El plan semanal debe tener entre 1 y 7 sesiones.'),
+    ).toBeTruthy();
+    await fireEvent.press(screen.getByRole('button', { name: /Inicio/ }));
+    await waitFor(() => expect(screen.getByText('0 / 3 sesiones')).toBeTruthy());
+  });
+
+  it('applies a strength plan on Monday without rewriting the previous week', async () => {
+    const storage = new MemoryStorage();
+    let currentNow = new Date(2026, 7, 9, 12, 0, 0);
+    const now = () => currentNow;
+
+    let rendered = await render(<App storage={storage} now={now} />);
+    await waitFor(() => expect(screen.getByText('0 / 3 sesiones')).toBeTruthy());
+    await fireEvent.press(
+      screen.getByRole('button', {
+        name: 'Marcar sesión Pecho/Hombro/Tríceps como completada',
+      }),
+    );
+    await waitFor(() => expect(screen.getByText('1 / 3 sesiones')).toBeTruthy());
+    await rendered.unmount();
+
+    currentNow = new Date(2026, 7, 16, 12, 0, 0);
+    rendered = await render(<App storage={storage} now={now} />);
+    await waitFor(() => expect(screen.getByText('0 / 3 sesiones')).toBeTruthy());
+    await fireEvent.press(
+      screen.getByRole('button', {
+        name: 'Marcar sesión Pecho/Hombro/Tríceps como completada',
+      }),
+    );
+    await waitFor(() => expect(screen.getByText('1 / 3 sesiones')).toBeTruthy());
+
+    await fireEvent.press(screen.getByRole('button', { name: /Ajustes/ }));
+    await waitFor(() =>
+      expect(screen.getByTestId('strength-session-count-input')).toBeTruthy(),
+    );
+    await fireEvent.changeText(
+      screen.getByTestId('strength-session-count-input'),
+      '2',
+    );
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Seleccionar Piernas para sesión 1' }),
+    );
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Guardar plan semanal de fuerza' }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByText('Plan semanal guardado para la próxima semana'),
+      ).toBeTruthy(),
+    );
+
+    await fireEvent.press(screen.getByRole('button', { name: /Inicio/ }));
+    await waitFor(() => expect(screen.getByText('1 / 3 sesiones')).toBeTruthy());
+    await rendered.unmount();
+
+    currentNow = new Date(2026, 7, 17, 12, 0, 0);
+    rendered = await render(<App storage={storage} now={now} />);
+    await waitFor(() => expect(screen.getByText('0 / 2 sesiones')).toBeTruthy());
+    expect(screen.getByText('Grupos musculares: Pecho, Hombro, Tríceps, Piernas')).toBeTruthy();
+    await rendered.unmount();
+
+    currentNow = new Date(2026, 7, 9, 12, 0, 0);
+    rendered = await render(<App storage={storage} now={now} />);
+    await waitFor(() => expect(screen.getByText('1 / 3 sesiones')).toBeTruthy());
+    await rendered.unmount();
+
+    currentNow = new Date(2026, 7, 16, 12, 0, 0);
+    await render(<App storage={storage} now={now} />);
+    await waitFor(() => expect(screen.getByText('1 / 3 sesiones')).toBeTruthy());
+  });
 });

@@ -1,4 +1,6 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
+import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import {
   Pressable,
   ScrollView,
@@ -14,8 +16,11 @@ import {
   formatDateKey,
   sortExercises,
   type Exercise,
+  type MuscleGroup,
   type StrengthSession,
+  type StrengthSessionInput,
 } from './storage/schema';
+import type { RootTabParamList } from './navigation/types';
 
 export function formatNumber(value: number): string {
   return String(value).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
@@ -52,25 +57,116 @@ function SectionLabel({ children }: { children: ReactNode }) {
   return <Text style={styles.sectionLabel}>{children}</Text>;
 }
 
-function StrengthSessionRow({ session }: { session: StrengthSession }) {
+function getStrengthProgressStatus(completed: number, goal: number): string {
+  if (completed >= goal) {
+    return 'Completado';
+  }
+
+  return completed > 0 ? 'Parcial' : 'Pendiente';
+}
+
+function toStrengthSessionInput(session: StrengthSession): StrengthSessionInput {
+  return {
+    name: session.name,
+    muscleGroupIds: [...session.muscleGroupIds],
+  };
+}
+
+function getSessionGroups(
+  session: StrengthSession,
+  muscleGroups: readonly MuscleGroup[],
+): MuscleGroup[] {
+  return session.muscleGroupIds.flatMap((groupId) => {
+    const group = muscleGroups.find((item) => item.id === groupId);
+    return group ? [group] : [];
+  });
+}
+
+function MuscleGroupLinks({
+  groups,
+  keyPrefix,
+  onOpenGroup,
+  getAccessibilityLabel,
+}: {
+  groups: readonly MuscleGroup[];
+  keyPrefix: string;
+  onOpenGroup: (groupId: string) => void;
+  getAccessibilityLabel: (group: MuscleGroup) => string;
+}) {
   return (
-    <View style={styles.listRow}>
-      <View style={styles.listRowCopy}>
-        <Text style={styles.listRowTitle}>{session.name}</Text>
-        <Text style={styles.mutedText}>
-          {session.completed ? 'Completada' : 'Pendiente'}
-        </Text>
+    <View style={styles.sessionGroupList}>
+      {groups.map((group) => (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={getAccessibilityLabel(group)}
+          key={`${keyPrefix}-${group.id}`}
+          onPress={() => onOpenGroup(group.id)}
+          style={({ pressed }) => [
+            styles.sessionGroupChip,
+            pressed && styles.pressed,
+          ]}
+        >
+          <Text style={styles.sessionGroupChipText}>{group.name}</Text>
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
+function StrengthSessionRow({
+  session,
+  muscleGroups,
+  onOpenGroup,
+  onToggle,
+}: {
+  session: StrengthSession;
+  muscleGroups: MuscleGroup[];
+  onOpenGroup: (groupId: string) => void;
+  onToggle: (session: StrengthSession) => void;
+}) {
+  return (
+    <View style={styles.strengthSessionRow}>
+      <View style={styles.listRow}>
+        <View style={styles.listRowCopy}>
+          <Text style={styles.listRowTitle}>{session.name}</Text>
+          <Text style={styles.mutedText}>
+            {session.completed ? 'Completada' : 'Pendiente'}
+          </Text>
+        </View>
+        <View
+          accessible
+          accessibilityLabel={session.completed ? 'Completada' : 'Pendiente'}
+          style={[
+            styles.statusPill,
+            session.completed ? styles.statusPillDone : styles.statusPillPending,
+          ]}
+        >
+          <Text style={styles.statusPillText}>{session.completed ? '✓' : '—'}</Text>
+        </View>
       </View>
-      <View
-        accessible
-        accessibilityLabel={session.completed ? 'Completada' : 'Pendiente'}
-        style={[
-          styles.statusPill,
-          session.completed ? styles.statusPillDone : styles.statusPillPending,
-        ]}
+      <MuscleGroupLinks
+        getAccessibilityLabel={(group) =>
+          `Abrir grupo ${group.name} en ${session.name}`
+        }
+        groups={muscleGroups}
+        keyPrefix={session.id}
+        onOpenGroup={onOpenGroup}
+      />
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={
+          session.completed
+            ? `Desmarcar sesión ${session.name}`
+            : `Marcar sesión ${session.name} como completada`
+        }
+        accessibilityState={{ selected: session.completed }}
+        onPress={() => onToggle(session)}
+        style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}
       >
-        <Text style={styles.statusPillText}>{session.completed ? '✓' : '—'}</Text>
-      </View>
+        <Text style={styles.secondaryButtonText}>
+          {session.completed ? 'Desmarcar sesión' : 'Marcar como completada'}
+        </Text>
+      </Pressable>
     </View>
   );
 }
@@ -81,8 +177,10 @@ export function HomeScreen() {
     currentDay,
     currentWeek,
     errorMessage,
+    setStrengthSessionCompleted,
     updateDailySteps,
   } = useAppState();
+  const navigation = useNavigation<BottomTabNavigationProp<RootTabParamList>>();
   const [stepsInput, setStepsInput] = useState(
     currentDay?.steps === null || currentDay?.steps === undefined
       ? ''
@@ -111,6 +209,11 @@ export function HomeScreen() {
   const strengthSessions = currentWeek?.strengthSessions ?? state.settings.strengthSessions;
   const completedStrength = strengthSessions.filter((session) => session.completed).length;
   const strengthGoal = currentWeek?.strengthGoal ?? strengthSessions.length;
+  const strengthStatus = getStrengthProgressStatus(completedStrength, strengthGoal);
+  const nextStrengthSession = strengthSessions.find((session) => !session.completed);
+  const nextStrengthGroups = nextStrengthSession
+    ? getSessionGroups(nextStrengthSession, state.muscleGroups)
+    : [];
   const heatCompleted = currentWeek?.heatCompleted ?? 0;
   const heatGoal = currentWeek?.heatGoal ?? state.settings.heatWeeklyGoal;
 
@@ -128,6 +231,18 @@ export function HomeScreen() {
     } catch {
       // El contexto conserva el valor anterior y muestra el error de almacenamiento.
     }
+  }
+
+  async function handleToggleStrengthSession(session: StrengthSession) {
+    try {
+      await setStrengthSessionCompleted(session.id, !session.completed);
+    } catch {
+      // El contexto conserva el valor anterior y muestra el error de almacenamiento.
+    }
+  }
+
+  function openMuscleGroup(groupId: string) {
+    navigation.navigate('Exercises', { groupId });
   }
 
   return (
@@ -190,14 +305,43 @@ export function HomeScreen() {
         <Text style={styles.metricText}>
           {completedStrength} / {strengthGoal} sesiones
         </Text>
+        <Text style={styles.supportText}>Estado: {strengthStatus}</Text>
         <Text style={styles.supportText}>
-          {completedStrength === strengthGoal
+          {completedStrength >= strengthGoal
             ? 'Objetivo completado'
             : `Quedan ${strengthGoal - completedStrength} sesiones`}
         </Text>
+        <View style={styles.nextSessionBlock}>
+          <Text style={styles.sectionLabel}>Próxima sesión</Text>
+          {nextStrengthSession ? (
+            <>
+              <Text style={styles.listRowTitle}>{nextStrengthSession.name}</Text>
+              <Text style={styles.supportText}>
+                Grupos musculares:{' '}
+                {nextStrengthGroups.map((group) => group.name).join(', ')}
+              </Text>
+              <MuscleGroupLinks
+                getAccessibilityLabel={(group) =>
+                  `Abrir grupo ${group.name} de la próxima sesión`
+                }
+                groups={nextStrengthGroups}
+                keyPrefix={`next-${nextStrengthSession.id}`}
+                onOpenGroup={openMuscleGroup}
+              />
+            </>
+          ) : (
+            <Text style={styles.supportText}>Todas las sesiones están completadas.</Text>
+          )}
+        </View>
         <View style={styles.sessionList}>
           {strengthSessions.map((session) => (
-            <StrengthSessionRow key={session.id} session={session} />
+            <StrengthSessionRow
+              key={session.id}
+              muscleGroups={getSessionGroups(session, state.muscleGroups)}
+              onOpenGroup={openMuscleGroup}
+              onToggle={handleToggleStrengthSession}
+              session={session}
+            />
           ))}
         </View>
       </Card>
@@ -240,7 +384,10 @@ export function ExercisesScreen() {
     updateExercise,
     updateMuscleGroup,
   } = useAppState();
-  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
+  const route = useRoute<RouteProp<RootTabParamList, 'Exercises'>>();
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(
+    route.params?.groupId ?? null,
+  );
   const [selectedExerciseId, setSelectedExerciseId] = useState<string | null>(null);
   const [isGroupFormVisible, setIsGroupFormVisible] = useState(false);
   const [groupName, setGroupName] = useState('');
@@ -263,6 +410,12 @@ export function ExercisesScreen() {
   const [groupEditName, setGroupEditName] = useState('');
   const [groupEditError, setGroupEditError] = useState<string | null>(null);
   const [groupActionError, setGroupActionError] = useState<string | null>(null);
+
+  useEffect(() => {
+    // A strength session can open this tab with a preselected muscle group.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSelectedGroupId(route.params?.groupId ?? null);
+  }, [route.params?.groupId]);
 
   if (!state) {
     return null;
@@ -928,11 +1081,24 @@ export function SettingsScreen() {
     currentDay,
     errorMessage,
     updateDailyStepGoal,
+    updateStrengthConfiguration,
   } = useAppState();
   const currentGoal = currentDay?.stepGoal ?? state?.settings.dailyStepGoal ?? 0;
+  const strengthSessions = useMemo(
+    () => state?.settings.strengthSessions ?? [],
+    [state?.settings.strengthSessions],
+  );
   const [goal, setGoal] = useState(String(currentGoal));
   const [validationError, setValidationError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [strengthSessionCount, setStrengthSessionCount] = useState(
+    String(strengthSessions.length),
+  );
+  const [strengthDraft, setStrengthDraft] = useState<StrengthSessionInput[]>(
+    strengthSessions.map(toStrengthSessionInput),
+  );
+  const [strengthValidationError, setStrengthValidationError] = useState<string | null>(null);
+  const [strengthSuccessMessage, setStrengthSuccessMessage] = useState<string | null>(null);
 
   useEffect(() => {
     // Refresh the form when a new local day becomes current.
@@ -941,8 +1107,93 @@ export function SettingsScreen() {
     setValidationError(null);
   }, [currentGoal]);
 
+  useEffect(() => {
+    // Keep the plan editor aligned with a persisted configuration.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setStrengthSessionCount(String(strengthSessions.length));
+    setStrengthDraft(strengthSessions.map(toStrengthSessionInput));
+    setStrengthValidationError(null);
+  }, [strengthSessions]);
+
   if (!state) {
     return null;
+  }
+
+  function handleStrengthSessionCountChange(value: string) {
+    setStrengthSessionCount(value);
+    setStrengthValidationError(null);
+
+    const parsedCount = parseNonNegativeInteger(value);
+    if (parsedCount === null || parsedCount < 1 || parsedCount > 7) {
+      return;
+    }
+
+    setStrengthDraft((currentDraft) =>
+      Array.from({ length: parsedCount }, (_, index) => {
+        const draftSession = currentDraft[index];
+        const configuredSession = strengthSessions[index];
+
+        return (
+          draftSession ??
+          (configuredSession
+            ? toStrengthSessionInput(configuredSession)
+            : {
+                name: `Sesión ${index + 1}`,
+                muscleGroupIds: [],
+              })
+        );
+      }),
+    );
+  }
+
+  function toggleStrengthGroup(sessionIndex: number, groupId: string) {
+    setStrengthDraft((currentDraft) =>
+      currentDraft.map((session, index) => {
+        if (index !== sessionIndex) {
+          return session;
+        }
+
+        const hasGroup = session.muscleGroupIds.includes(groupId);
+        return {
+          ...session,
+          muscleGroupIds: hasGroup
+            ? session.muscleGroupIds.filter((id) => id !== groupId)
+            : [...session.muscleGroupIds, groupId],
+        };
+      }),
+    );
+    setStrengthValidationError(null);
+    setStrengthSuccessMessage(null);
+  }
+
+  async function handleSaveStrengthConfiguration() {
+    setStrengthValidationError(null);
+    setStrengthSuccessMessage(null);
+    const parsedCount = parseNonNegativeInteger(strengthSessionCount);
+
+    if (parsedCount === null || parsedCount < 1 || parsedCount > 7) {
+      setStrengthValidationError('El plan semanal debe tener entre 1 y 7 sesiones.');
+      return;
+    }
+
+    if (strengthDraft.length !== parsedCount) {
+      setStrengthValidationError('Configura el número de sesiones antes de guardar.');
+      return;
+    }
+
+    if (strengthDraft.some((session) => session.muscleGroupIds.length === 0)) {
+      setStrengthValidationError('Asigna al menos un grupo muscular a cada sesión.');
+      return;
+    }
+
+    try {
+      await updateStrengthConfiguration(strengthDraft);
+      setStrengthSuccessMessage('Plan semanal guardado para la próxima semana');
+    } catch (error) {
+      setStrengthValidationError(
+        error instanceof Error ? error.message : 'No se pudo guardar el plan semanal.',
+      );
+    }
   }
 
   async function handleSaveGoal() {
@@ -1015,8 +1266,62 @@ export function SettingsScreen() {
           {state.settings.strengthSessions.length} sesiones
         </Text>
         <Text style={styles.supportText}>
-          La configuración inicial ya está lista para la primera semana.
+          Los cambios se aplicarán el próximo lunes y no modifican la semana actual.
         </Text>
+        <TextInput
+          accessibilityLabel="Número de sesiones semanales de fuerza"
+          autoCapitalize="none"
+          keyboardType="number-pad"
+          onChangeText={handleStrengthSessionCountChange}
+          placeholder="Número de sesiones"
+          style={styles.input}
+          testID="strength-session-count-input"
+          value={strengthSessionCount}
+        />
+        {strengthDraft.map((session, sessionIndex) => (
+          <View key={`strength-draft-${sessionIndex}`} style={styles.strengthDraftBlock}>
+            <Text style={styles.listRowTitle}>
+              Sesión {sessionIndex + 1}: {session.name}
+            </Text>
+            <Text style={styles.supportText}>Grupos musculares asignados</Text>
+            <View style={styles.groupList}>
+              {state.muscleGroups.map((group) => {
+                const isSelected = session.muscleGroupIds.includes(group.id);
+                return (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Seleccionar ${group.name} para sesión ${sessionIndex + 1}`}
+                    accessibilityState={{ selected: isSelected }}
+                    key={`strength-draft-${sessionIndex}-${group.id}`}
+                    onPress={() => toggleStrengthGroup(sessionIndex, group.id)}
+                    style={[
+                      styles.groupChip,
+                      isSelected && styles.groupChipSelected,
+                    ]}
+                  >
+                    <Text style={styles.groupChipText}>{group.name}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        ))}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Guardar plan semanal de fuerza"
+          onPress={() => void handleSaveStrengthConfiguration()}
+          style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
+        >
+          <Text style={styles.primaryButtonText}>Guardar plan semanal</Text>
+        </Pressable>
+        {strengthValidationError ? (
+          <Text accessibilityRole="alert" style={styles.errorText}>
+            {strengthValidationError}
+          </Text>
+        ) : null}
+        {strengthSuccessMessage ? (
+          <Text style={styles.successText}>{strengthSuccessMessage}</Text>
+        ) : null}
       </Card>
 
       <Card>
@@ -1158,6 +1463,44 @@ const styles = StyleSheet.create({
   sessionList: {
     gap: 8,
     marginTop: 4,
+  },
+  strengthSessionRow: {
+    borderColor: '#DCE8DF',
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 8,
+    padding: 12,
+  },
+  nextSessionBlock: {
+    backgroundColor: '#F4F7F5',
+    borderRadius: 12,
+    gap: 4,
+    padding: 12,
+  },
+  sessionGroupList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  sessionGroupChip: {
+    backgroundColor: '#E9F4EC',
+    borderColor: '#CDE3D4',
+    borderRadius: 99,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  sessionGroupChipText: {
+    color: '#287A4D',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  strengthDraftBlock: {
+    borderColor: '#DCE8DF',
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 8,
+    padding: 12,
   },
   exerciseList: {
     gap: 8,
