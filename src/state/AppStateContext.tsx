@@ -152,6 +152,8 @@ function normalizeStrengthConfiguration(
 
 const WATER_PERMISSION_ERROR =
   'No se concedió el permiso de notificaciones. Actívalo en Ajustes de Android para recibir avisos.';
+const WATER_CANCELLATION_ERROR =
+  'No se pudieron cancelar los recordatorios de agua. Se conserva la configuración y puedes reintentarlo.';
 
 async function cancelWaterReminders(
   notifications: WaterNotificationAdapter,
@@ -175,12 +177,14 @@ async function scheduleWaterReminders(
 async function restoreWaterReminderSchedule(
   notifications: WaterNotificationAdapter,
   previousWaterSettings: WaterSettings,
-  previousTimes: readonly WaterReminderTime[],
 ): Promise<void> {
   try {
     await cancelWaterReminders(notifications);
     if (previousWaterSettings.enabled) {
-      await scheduleWaterReminders(notifications, previousTimes);
+      await scheduleWaterReminders(
+        notifications,
+        getWaterReminderTimes(previousWaterSettings),
+      );
     }
   } catch {
     // A rollback is best effort; the original operation error remains authoritative.
@@ -220,9 +224,7 @@ export function AppStateProvider({
         let stateToUse = loadedState;
         let permission: WaterPermissionStatus | null = null;
         let waterStatePersistenceFailed = false;
-        const previousWaterTimes = loadedState.settings.water.enabled
-          ? getWaterReminderTimes(loadedState.settings.water)
-          : [];
+        let waterCancellationFailed = false;
 
         try {
           permission = await notifications.getPermissionStatus();
@@ -236,31 +238,33 @@ export function AppStateProvider({
           loadedState.settings.water.enabled &&
           permission !== 'granted'
         ) {
-          stateToUse = {
-            ...loadedState,
-            settings: {
-              ...loadedState.settings,
-              water: {
-                ...loadedState.settings.water,
-                enabled: false,
-              },
-            },
-          };
           try {
             await cancelWaterReminders(notifications);
           } catch {
-            // The permission state still prevents the UI from reporting active reminders.
+            // Do not persist a disabled state while old reminders may still exist.
+            waterCancellationFailed = true;
           }
-          try {
-            await saveAppState(storage, stateToUse);
-          } catch {
-            stateToUse = loadedState;
-            waterStatePersistenceFailed = true;
+
+          if (!waterCancellationFailed) {
+            stateToUse = {
+              ...loadedState,
+              settings: {
+                ...loadedState.settings,
+                water: {
+                  ...loadedState.settings.water,
+                  enabled: false,
+                },
+              },
+            };
             try {
-              await cancelWaterReminders(notifications);
-              await scheduleWaterReminders(notifications, previousWaterTimes);
+              await saveAppState(storage, stateToUse);
             } catch {
-              // Keep the loaded state and surface the persistence failure to the user.
+              stateToUse = loadedState;
+              waterStatePersistenceFailed = true;
+              await restoreWaterReminderSchedule(
+                notifications,
+                loadedState.settings.water,
+              );
             }
           }
         }
@@ -271,7 +275,9 @@ export function AppStateProvider({
         setErrorMessage(
           waterStatePersistenceFailed
             ? 'No se pudo guardar el cambio. Tus datos anteriores siguen intactos.'
-            : null,
+            : waterCancellationFailed
+              ? WATER_CANCELLATION_ERROR
+              : null,
         );
       } catch {
         setErrorMessage(
@@ -510,9 +516,6 @@ export function AppStateProvider({
 
         validateWaterSettings(settings);
         const previousWaterSettings = currentState.settings.water;
-        const previousTimes = previousWaterSettings.enabled
-          ? getWaterReminderTimes(previousWaterSettings)
-          : [];
 
         if (settings.enabled) {
           await notifications.createChannel();
@@ -541,7 +544,6 @@ export function AppStateProvider({
               await restoreWaterReminderSchedule(
                 notifications,
                 previousWaterSettings,
-                previousTimes,
               );
               throw error;
             }
@@ -570,7 +572,6 @@ export function AppStateProvider({
           await restoreWaterReminderSchedule(
             notifications,
             previousWaterSettings,
-            previousTimes,
           );
           throw error;
         }

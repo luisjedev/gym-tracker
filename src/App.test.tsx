@@ -37,6 +37,7 @@ class ControlledWaterNotifications implements WaterNotificationAdapter {
   readonly cancelled: string[] = [];
   readonly foreignIds = new Set(['foreign-reminder']);
   foreignCancellationAttempts = 0;
+  failCancellations = false;
   private nextId = 1;
 
   async getPermissionStatus() {
@@ -67,6 +68,10 @@ class ControlledWaterNotifications implements WaterNotificationAdapter {
   }
 
   async cancelWaterReminder(id: string) {
+    if (this.failCancellations) {
+      throw new Error('cancel failed');
+    }
+
     if (this.foreignIds.has(id)) {
       this.foreignCancellationAttempts += 1;
       return;
@@ -1260,6 +1265,60 @@ describe('Gym Tracker app flow', () => {
       ).toBeTruthy(),
     );
     expect(notifications.scheduled.size).toBe(0);
+  });
+
+  it('keeps active water configuration when revoked reminders cannot be cancelled', async () => {
+    const storage = new MemoryStorage();
+    const notifications = new ControlledWaterNotifications();
+    notifications.permission = 'granted';
+
+    const firstRender = await render(
+      <App
+        notifications={notifications}
+        now={() => new Date(2026, 7, 17, 12)}
+        storage={storage}
+      />,
+    );
+    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
+    await fireEvent.press(screen.getByRole('button', { name: /Ajustes/ }));
+    await fireEvent(
+      screen.getByTestId('water-enabled-switch'),
+      'valueChange',
+      true,
+    );
+    await waitFor(() => expect(notifications.scheduled.size).toBe(8));
+    await firstRender.unmount();
+
+    notifications.permission = 'denied';
+    notifications.failCancellations = true;
+    const failedLoad = await render(
+      <App
+        notifications={notifications}
+        now={() => new Date(2026, 7, 17, 12)}
+        storage={storage}
+      />,
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          'No se pudieron cancelar los recordatorios de agua. Se conserva la configuración y puedes reintentarlo.',
+        ),
+      ).toBeTruthy(),
+    );
+    expect(screen.getByText('Inactivos')).toBeTruthy();
+    expect(notifications.scheduled.size).toBe(8);
+    await failedLoad.unmount();
+
+    notifications.permission = 'granted';
+    notifications.failCancellations = false;
+    await render(
+      <App
+        notifications={notifications}
+        now={() => new Date(2026, 7, 17, 12)}
+        storage={storage}
+      />,
+    );
+    await waitFor(() => expect(screen.getByText('Activos')).toBeTruthy());
   });
 
   it('keeps the loaded state and reports a recoverable error when revocation cannot be persisted', async () => {
