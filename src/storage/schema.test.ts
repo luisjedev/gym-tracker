@@ -1,0 +1,65 @@
+import {
+  DEFAULT_DAILY_STEP_GOAL,
+  DEFAULT_HEAT_WEEKLY_GOAL,
+  DEFAULT_MUSCLE_GROUPS,
+  DEFAULT_STRENGTH_SESSIONS,
+  DEFAULT_WATER_SETTINGS,
+  createDefaultState,
+  formatDateKey,
+  getMondayDateKey,
+  loadAppState,
+  saveAppState,
+  STORAGE_SCHEMA_VERSION,
+} from './schema';
+import type { StorageAdapter } from './appStorage';
+
+class MemoryStorage implements StorageAdapter {
+  value: string | null = null;
+  writes = 0;
+
+  async getItem() {
+    return this.value;
+  }
+
+  async setItem(_key: string, value: string) {
+    this.value = value;
+    this.writes += 1;
+  }
+}
+
+describe('versioned local app state', () => {
+  it('creates the documented defaults and persists schema version one', async () => {
+    const now = new Date(2026, 7, 17, 12, 0, 0);
+    const storage = new MemoryStorage();
+
+    const state = await loadAppState(storage, now);
+    const payload = JSON.parse(storage.value ?? '{}');
+
+    expect(payload.schemaVersion).toBe(STORAGE_SCHEMA_VERSION);
+    expect(state.settings.dailyStepGoal).toBe(DEFAULT_DAILY_STEP_GOAL);
+    expect(state.settings.strengthSessions).toEqual(DEFAULT_STRENGTH_SESSIONS);
+    expect(state.settings.heatWeeklyGoal).toBe(DEFAULT_HEAT_WEEKLY_GOAL);
+    expect(state.settings.water).toEqual(DEFAULT_WATER_SETTINGS);
+    expect(state.muscleGroups).toEqual(DEFAULT_MUSCLE_GROUPS);
+    expect(state.dailyRecords[formatDateKey(now)]).toEqual({
+      date: formatDateKey(now),
+      steps: null,
+      stepGoal: DEFAULT_DAILY_STEP_GOAL,
+    });
+    expect(state.weeklyRecords[getMondayDateKey(now)].strengthGoal).toBe(3);
+  });
+
+  it('hydrates an existing snapshot without writing over it again', async () => {
+    const now = new Date(2026, 7, 17, 12, 0, 0);
+    const storage = new MemoryStorage();
+    const original = createDefaultState(now);
+    original.settings.dailyStepGoal = 8_000;
+    await saveAppState(storage, original);
+    const writesBeforeHydration = storage.writes;
+
+    const hydrated = await loadAppState(storage, now);
+
+    expect(hydrated.settings.dailyStepGoal).toBe(8_000);
+    expect(storage.writes).toBe(writesBeforeHydration);
+  });
+});

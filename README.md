@@ -94,8 +94,13 @@ npm start          # Metro para la development build
 npm run typecheck  # Comprobación de TypeScript
 npm run lint       # ESLint con la configuración de Expo
 npm run check      # TypeScript y ESLint
+npm test           # Pruebas de integración y persistencia local
 npx expo-doctor    # Compatibilidad del proyecto Expo
 ```
+
+## Base de la aplicación
+
+La app ofrece las cuatro secciones principales —Inicio, Ejercicios, Historial y Ajustes— mediante navegación inferior. Los datos estructurados se guardan en AsyncStorage bajo un esquema versionado y se inicializan una sola vez con los objetivos y grupos musculares predeterminados. Si una lectura o escritura local falla, la interfaz conserva el estado anterior y muestra un mensaje recuperable.
 
 ## Especificación
 
