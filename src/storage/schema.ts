@@ -63,6 +63,50 @@ export interface Exercise {
   updatedAt: string;
 }
 
+export interface NewExerciseInput {
+  name: string;
+  muscleGroupId: string;
+  description?: string;
+}
+
+export function normalizeEntityName(value: string): string {
+  return value.trim().replace(/\s+/g, ' ');
+}
+
+export function namesMatch(left: string, right: string): boolean {
+  return normalizeEntityName(left)
+    .replace(/\s/g, '')
+    .toLocaleLowerCase() ===
+    normalizeEntityName(right).replace(/\s/g, '').toLocaleLowerCase();
+}
+
+export function sortExercises(
+  exercises: readonly Exercise[],
+  muscleGroups: readonly MuscleGroup[],
+): Exercise[] {
+  const groupOrder = new Map(
+    muscleGroups.map((group, index) => [group.id, index]),
+  );
+
+  return [...exercises].sort((left, right) => {
+    const groupDifference =
+      (groupOrder.get(left.muscleGroupId) ?? Number.MAX_SAFE_INTEGER) -
+      (groupOrder.get(right.muscleGroupId) ?? Number.MAX_SAFE_INTEGER);
+
+    if (groupDifference !== 0) {
+      return groupDifference;
+    }
+
+    const nameDifference = left.name.localeCompare(right.name, 'es', {
+      sensitivity: 'base',
+    });
+
+    return nameDifference !== 0
+      ? nameDifference
+      : left.id.localeCompare(right.id);
+  });
+}
+
 export interface ActiveFasting {
   startedAt: string;
 }

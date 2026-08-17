@@ -16,8 +16,11 @@ import {
   formatDateKey,
   getMondayDateKey,
   loadAppState,
+  namesMatch,
+  normalizeEntityName,
   saveAppState,
   type AppState,
+  type NewExerciseInput,
   type DailyRecord,
   type WeeklyRecord,
 } from '../storage/schema';
@@ -33,6 +36,8 @@ export interface AppStateContextValue {
   currentDay: DailyRecord | null;
   currentWeek: WeeklyRecord | null;
   updateDailyStepGoal(value: number): Promise<void>;
+  createMuscleGroup(name: string): Promise<void>;
+  createExercise(input: NewExerciseInput): Promise<void>;
   retry(): void;
 }
 
@@ -42,6 +47,16 @@ export interface AppStateProviderProps extends PropsWithChildren {
 }
 
 const defaultNow: NowProvider = () => new Date();
+
+function createUniqueId(prefix: string, existingIds: readonly string[]): string {
+  let id = `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+  while (existingIds.includes(id)) {
+    id = `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  }
+
+  return id;
+}
 
 const AppStateContext = createContext<AppStateContextValue | null>(null);
 
@@ -79,6 +94,104 @@ export function AppStateProvider({
       }
     },
     [now, storage],
+  );
+
+  const persistState = useCallback(
+    async (nextState: AppState) => {
+      try {
+        await saveAppState(storage, nextState);
+        stateRef.current = nextState;
+        setState(nextState);
+        setErrorMessage(null);
+      } catch (error) {
+        setErrorMessage(
+          'No se pudo guardar el cambio. Tus datos anteriores siguen intactos.',
+        );
+        throw error;
+      }
+    },
+    [storage],
+  );
+
+  const createMuscleGroup = useCallback(
+    async (name: string) => {
+      const normalizedName = normalizeEntityName(name);
+
+      if (!normalizedName) {
+        throw new Error('Escribe un nombre para el grupo muscular.');
+      }
+
+      const currentState = stateRef.current;
+      if (!currentState) {
+        throw new Error('Los datos todavía se están cargando.');
+      }
+
+      if (
+        currentState.muscleGroups.some((group) =>
+          namesMatch(group.name, normalizedName),
+        )
+      ) {
+        throw new Error('Ya existe un grupo muscular con ese nombre.');
+      }
+
+      const nextGroup = {
+        id: createUniqueId(
+          'group',
+          currentState.muscleGroups.map((group) => group.id),
+        ),
+        name: normalizedName,
+      };
+
+      await persistState({
+        ...currentState,
+        muscleGroups: [...currentState.muscleGroups, nextGroup],
+      });
+    },
+    [persistState],
+  );
+
+  const createExercise = useCallback(
+    async (input: NewExerciseInput) => {
+      const normalizedName = normalizeEntityName(input.name);
+      const description = input.description?.trim() ?? '';
+
+      if (!normalizedName) {
+        throw new Error('Escribe un nombre para el ejercicio.');
+      }
+
+      if (!input.muscleGroupId) {
+        throw new Error('Selecciona un grupo muscular.');
+      }
+
+      const currentState = stateRef.current;
+      if (!currentState) {
+        throw new Error('Los datos todavía se están cargando.');
+      }
+
+      if (!currentState.muscleGroups.some((group) => group.id === input.muscleGroupId)) {
+        throw new Error('Selecciona un grupo muscular válido.');
+      }
+
+      const timestamp = now().toISOString();
+      const nextExercise = {
+        id: createUniqueId(
+          'exercise',
+          currentState.exercises.map((exercise) => exercise.id),
+        ),
+        name: normalizedName,
+        muscleGroupId: input.muscleGroupId,
+        description,
+        media: [],
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      };
+
+      await persistState({
+        ...currentState,
+        exercises: [...currentState.exercises, nextExercise],
+      });
+    },
+    [now, persistState],
   );
 
   useEffect(() => {
@@ -136,19 +249,9 @@ export function AppStateProvider({
         now(),
       );
 
-      try {
-        await saveAppState(storage, nextState);
-        stateRef.current = nextState;
-        setState(nextState);
-        setErrorMessage(null);
-      } catch (error) {
-        setErrorMessage(
-          'No se pudo guardar el cambio. Tus datos anteriores siguen intactos.',
-        );
-        throw error;
-      }
+      await persistState(nextState);
     },
-    [now, storage],
+    [now, persistState],
   );
 
   const currentDateKey = state ? formatDateKey(now()) : null;
@@ -165,6 +268,8 @@ export function AppStateProvider({
         ? state?.weeklyRecords[currentWeekStart] ?? null
         : null,
       updateDailyStepGoal,
+      createMuscleGroup,
+      createExercise,
       retry: () => {
         void load(true);
       },
@@ -172,6 +277,8 @@ export function AppStateProvider({
     [
       currentDateKey,
       currentWeekStart,
+      createExercise,
+      createMuscleGroup,
       errorMessage,
       load,
       state,
