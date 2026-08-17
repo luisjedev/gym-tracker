@@ -37,7 +37,11 @@ export interface AppStateContextValue {
   currentWeek: WeeklyRecord | null;
   updateDailyStepGoal(value: number): Promise<void>;
   createMuscleGroup(name: string): Promise<void>;
+  updateMuscleGroup(id: string, name: string): Promise<void>;
+  deleteMuscleGroup(id: string): Promise<void>;
   createExercise(input: NewExerciseInput): Promise<void>;
+  updateExercise(id: string, input: NewExerciseInput): Promise<void>;
+  deleteExercise(id: string): Promise<void>;
   retry(): void;
 }
 
@@ -56,6 +60,31 @@ function createUniqueId(prefix: string, existingIds: readonly string[]): string 
   }
 
   return id;
+}
+
+function normalizeExerciseInput(
+  currentState: AppState,
+  input: NewExerciseInput,
+): NewExerciseInput {
+  const normalizedName = normalizeEntityName(input.name);
+
+  if (!normalizedName) {
+    throw new Error('Escribe un nombre para el ejercicio.');
+  }
+
+  if (!input.muscleGroupId) {
+    throw new Error('Selecciona un grupo muscular.');
+  }
+
+  if (!currentState.muscleGroups.some((group) => group.id === input.muscleGroupId)) {
+    throw new Error('Selecciona un grupo muscular válido.');
+  }
+
+  return {
+    name: normalizedName,
+    muscleGroupId: input.muscleGroupId,
+    description: input.description?.trim() ?? '',
+  };
 }
 
 const AppStateContext = createContext<AppStateContextValue | null>(null);
@@ -150,37 +179,105 @@ export function AppStateProvider({
     [persistState],
   );
 
-  const createExercise = useCallback(
-    async (input: NewExerciseInput) => {
-      const normalizedName = normalizeEntityName(input.name);
-      const description = input.description?.trim() ?? '';
-
-      if (!normalizedName) {
-        throw new Error('Escribe un nombre para el ejercicio.');
-      }
-
-      if (!input.muscleGroupId) {
-        throw new Error('Selecciona un grupo muscular.');
-      }
-
+  const updateMuscleGroup = useCallback(
+    async (id: string, name: string) => {
       const currentState = stateRef.current;
       if (!currentState) {
         throw new Error('Los datos todavía se están cargando.');
       }
 
-      if (!currentState.muscleGroups.some((group) => group.id === input.muscleGroupId)) {
-        throw new Error('Selecciona un grupo muscular válido.');
+      if (!currentState.muscleGroups.some((group) => group.id === id)) {
+        throw new Error('No se encontró el grupo muscular.');
       }
 
+      const normalizedName = normalizeEntityName(name);
+      if (!normalizedName) {
+        throw new Error('Escribe un nombre para el grupo muscular.');
+      }
+
+      if (
+        currentState.muscleGroups.some(
+          (group) => group.id !== id && namesMatch(group.name, normalizedName),
+        )
+      ) {
+        throw new Error('Ya existe un grupo muscular con ese nombre.');
+      }
+
+      await persistState({
+        ...currentState,
+        muscleGroups: currentState.muscleGroups.map((group) =>
+          group.id === id ? { ...group, name: normalizedName } : group,
+        ),
+      });
+    },
+    [persistState],
+  );
+
+  const deleteMuscleGroup = useCallback(
+    async (id: string) => {
+      const currentState = stateRef.current;
+      if (!currentState) {
+        throw new Error('Los datos todavía se están cargando.');
+      }
+
+      if (!currentState.muscleGroups.some((group) => group.id === id)) {
+        throw new Error('No se encontró el grupo muscular.');
+      }
+
+      const usedByExercise = currentState.exercises.some(
+        (exercise) => exercise.muscleGroupId === id,
+      );
+      const usedByPlan =
+        currentState.settings.strengthSessions.some((session) =>
+          session.muscleGroupIds.includes(id),
+        ) ||
+        Object.values(currentState.weeklyRecords).some((week) =>
+          week.strengthSessions.some((session) => session.muscleGroupIds.includes(id)),
+        );
+
+      if (usedByExercise && usedByPlan) {
+        throw new Error(
+          'No se puede eliminar el grupo muscular porque está usado por ejercicios y por la planificación semanal.',
+        );
+      }
+
+      if (usedByExercise) {
+        throw new Error(
+          'No se puede eliminar el grupo muscular porque está usado por un ejercicio.',
+        );
+      }
+
+      if (usedByPlan) {
+        throw new Error(
+          'No se puede eliminar el grupo muscular porque está usado por la planificación semanal.',
+        );
+      }
+
+      await persistState({
+        ...currentState,
+        muscleGroups: currentState.muscleGroups.filter((group) => group.id !== id),
+      });
+    },
+    [persistState],
+  );
+
+  const createExercise = useCallback(
+    async (input: NewExerciseInput) => {
+      const currentState = stateRef.current;
+      if (!currentState) {
+        throw new Error('Los datos todavía se están cargando.');
+      }
+
+      const normalizedInput = normalizeExerciseInput(currentState, input);
       const timestamp = now().toISOString();
       const nextExercise = {
         id: createUniqueId(
           'exercise',
           currentState.exercises.map((exercise) => exercise.id),
         ),
-        name: normalizedName,
-        muscleGroupId: input.muscleGroupId,
-        description,
+        name: normalizedInput.name,
+        muscleGroupId: normalizedInput.muscleGroupId,
+        description: normalizedInput.description ?? '',
         media: [],
         createdAt: timestamp,
         updatedAt: timestamp,
@@ -192,6 +289,58 @@ export function AppStateProvider({
       });
     },
     [now, persistState],
+  );
+
+  const updateExercise = useCallback(
+    async (id: string, input: NewExerciseInput) => {
+      const currentState = stateRef.current;
+      if (!currentState) {
+        throw new Error('Los datos todavía se están cargando.');
+      }
+
+      const existingExercise = currentState.exercises.find(
+        (exercise) => exercise.id === id,
+      );
+      if (!existingExercise) {
+        throw new Error('No se encontró el ejercicio.');
+      }
+
+      const normalizedInput = normalizeExerciseInput(currentState, input);
+      const updatedExercise = {
+        ...existingExercise,
+        name: normalizedInput.name,
+        muscleGroupId: normalizedInput.muscleGroupId,
+        description: normalizedInput.description ?? '',
+        updatedAt: now().toISOString(),
+      };
+
+      await persistState({
+        ...currentState,
+        exercises: currentState.exercises.map((exercise) =>
+          exercise.id === id ? updatedExercise : exercise,
+        ),
+      });
+    },
+    [now, persistState],
+  );
+
+  const deleteExercise = useCallback(
+    async (id: string) => {
+      const currentState = stateRef.current;
+      if (!currentState) {
+        throw new Error('Los datos todavía se están cargando.');
+      }
+
+      if (!currentState.exercises.some((exercise) => exercise.id === id)) {
+        throw new Error('No se encontró el ejercicio.');
+      }
+
+      await persistState({
+        ...currentState,
+        exercises: currentState.exercises.filter((exercise) => exercise.id !== id),
+      });
+    },
+    [persistState],
   );
 
   useEffect(() => {
@@ -269,7 +418,11 @@ export function AppStateProvider({
         : null,
       updateDailyStepGoal,
       createMuscleGroup,
+      updateMuscleGroup,
+      deleteMuscleGroup,
       createExercise,
+      updateExercise,
+      deleteExercise,
       retry: () => {
         void load(true);
       },
@@ -279,11 +432,15 @@ export function AppStateProvider({
       currentWeekStart,
       createExercise,
       createMuscleGroup,
+      deleteExercise,
+      deleteMuscleGroup,
       errorMessage,
       load,
       state,
       status,
       updateDailyStepGoal,
+      updateExercise,
+      updateMuscleGroup,
     ],
   );
 

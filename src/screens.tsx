@@ -145,7 +145,11 @@ export function ExercisesScreen() {
     state,
     createExercise,
     createMuscleGroup,
+    deleteExercise,
+    deleteMuscleGroup,
     errorMessage,
+    updateExercise,
+    updateMuscleGroup,
   } = useAppState();
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [selectedExerciseId, setSelectedExerciseId] = useState<string | null>(null);
@@ -159,6 +163,17 @@ export function ExercisesScreen() {
   const [exerciseGroupId, setExerciseGroupId] = useState<string | null>(null);
   const [exerciseValidationError, setExerciseValidationError] = useState<string | null>(null);
   const [exerciseSuccessMessage, setExerciseSuccessMessage] = useState<string | null>(null);
+  const [isExerciseEditVisible, setIsExerciseEditVisible] = useState(false);
+  const [exerciseEditName, setExerciseEditName] = useState('');
+  const [exerciseEditDescription, setExerciseEditDescription] = useState('');
+  const [exerciseEditGroupId, setExerciseEditGroupId] = useState<string | null>(null);
+  const [exerciseEditError, setExerciseEditError] = useState<string | null>(null);
+  const [exerciseActionError, setExerciseActionError] = useState<string | null>(null);
+  const [isExerciseDeleteConfirmationVisible, setIsExerciseDeleteConfirmationVisible] = useState(false);
+  const [groupEditId, setGroupEditId] = useState<string | null>(null);
+  const [groupEditName, setGroupEditName] = useState('');
+  const [groupEditError, setGroupEditError] = useState<string | null>(null);
+  const [groupActionError, setGroupActionError] = useState<string | null>(null);
 
   if (!state) {
     return null;
@@ -227,27 +242,280 @@ export function ExercisesScreen() {
     }
   }
 
+  function startGroupEdit(groupId: string) {
+    const currentState = state;
+    if (!currentState) {
+      return;
+    }
+
+    const group = currentState.muscleGroups.find((item) => item.id === groupId);
+    if (!group) {
+      return;
+    }
+
+    setGroupEditId(group.id);
+    setGroupEditName(group.name);
+    setGroupEditError(null);
+    setGroupActionError(null);
+  }
+
+  async function handleUpdateGroup() {
+    if (!groupEditId) {
+      return;
+    }
+
+    setGroupEditError(null);
+    setGroupSuccessMessage(null);
+
+    if (!groupEditName.trim()) {
+      setGroupEditError('Escribe un nombre para el grupo muscular.');
+      return;
+    }
+
+    try {
+      await updateMuscleGroup(groupEditId, groupEditName);
+      setGroupEditId(null);
+      setGroupEditName('');
+      setGroupSuccessMessage('Grupo muscular actualizado');
+    } catch (error) {
+      setGroupEditError(
+        error instanceof Error ? error.message : 'No se pudo actualizar el grupo muscular.',
+      );
+    }
+  }
+
+  async function handleDeleteGroup(groupId: string) {
+    setGroupActionError(null);
+    setGroupSuccessMessage(null);
+
+    try {
+      await deleteMuscleGroup(groupId);
+      if (selectedGroupId === groupId) {
+        setSelectedGroupId(null);
+      }
+      if (exerciseGroupId === groupId) {
+        setExerciseGroupId(null);
+      }
+      if (groupEditId === groupId) {
+        setGroupEditId(null);
+        setGroupEditName('');
+      }
+      setGroupSuccessMessage('Grupo muscular eliminado');
+    } catch (error) {
+      setGroupActionError(
+        error instanceof Error ? error.message : 'No se pudo eliminar el grupo muscular.',
+      );
+    }
+  }
+
+  function startExerciseEdit() {
+    if (!selectedExercise) {
+      return;
+    }
+
+    setExerciseEditName(selectedExercise.name);
+    setExerciseEditDescription(selectedExercise.description);
+    setExerciseEditGroupId(selectedExercise.muscleGroupId);
+    setExerciseEditError(null);
+    setExerciseActionError(null);
+    setIsExerciseDeleteConfirmationVisible(false);
+    setIsExerciseEditVisible(true);
+  }
+
+  async function handleUpdateExercise() {
+    if (!selectedExercise) {
+      return;
+    }
+
+    setExerciseEditError(null);
+    setExerciseActionError(null);
+    setExerciseSuccessMessage(null);
+
+    if (!exerciseEditName.trim()) {
+      setExerciseEditError('Escribe un nombre para el ejercicio.');
+      return;
+    }
+
+    if (!exerciseEditGroupId) {
+      setExerciseEditError('Selecciona un grupo muscular.');
+      return;
+    }
+
+    try {
+      await updateExercise(selectedExercise.id, {
+        name: exerciseEditName,
+        muscleGroupId: exerciseEditGroupId,
+        description: exerciseEditDescription,
+      });
+      setIsExerciseEditVisible(false);
+      setExerciseSuccessMessage('Ejercicio actualizado');
+    } catch (error) {
+      setExerciseEditError(
+        error instanceof Error ? error.message : 'No se pudo actualizar el ejercicio.',
+      );
+    }
+  }
+
+  function requestExerciseDeletion() {
+    setExerciseActionError(null);
+    setIsExerciseEditVisible(false);
+    setIsExerciseDeleteConfirmationVisible(true);
+  }
+
+  async function confirmExerciseDeletion() {
+    if (!selectedExercise) {
+      return;
+    }
+
+    setExerciseActionError(null);
+
+    try {
+      await deleteExercise(selectedExercise.id);
+      setSelectedExerciseId(null);
+      setIsExerciseDeleteConfirmationVisible(false);
+      setExerciseSuccessMessage('Ejercicio eliminado');
+    } catch (error) {
+      setExerciseActionError(
+        error instanceof Error ? error.message : 'No se pudo eliminar el ejercicio.',
+      );
+    }
+  }
+
   if (selectedExercise) {
     return (
       <Screen title="Ejercicios">
         <Card>
           <Text style={styles.libraryTitle}>Detalle del ejercicio</Text>
-          <SectionLabel>Nombre</SectionLabel>
-          <Text style={styles.metricText}>{selectedExercise.name}</Text>
-          <SectionLabel>Grupo muscular</SectionLabel>
-          <Text style={styles.supportText}>
-            {selectedExerciseGroup?.name ?? 'Grupo no disponible'}
-          </Text>
-          {selectedExercise.description ? (
+          {isExerciseEditVisible ? (
+            <View style={styles.formBlock}>
+              <TextInput
+                accessibilityLabel="Nombre del ejercicio a editar"
+                autoCapitalize="words"
+                onChangeText={setExerciseEditName}
+                style={styles.input}
+                testID="exercise-edit-name-input"
+                value={exerciseEditName}
+              />
+              <TextInput
+                accessibilityLabel="Descripción del ejercicio a editar"
+                multiline
+                onChangeText={setExerciseEditDescription}
+                style={[styles.input, styles.multilineInput]}
+                testID="exercise-edit-description-input"
+                value={exerciseEditDescription}
+              />
+              <Text style={styles.supportText}>Selecciona un grupo muscular</Text>
+              <View style={styles.groupList}>
+                {state.muscleGroups.map((group) => (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Seleccionar grupo para editar ${group.name}`}
+                    accessibilityState={{ selected: group.id === exerciseEditGroupId }}
+                    key={`exercise-edit-${group.id}`}
+                    onPress={() => setExerciseEditGroupId(group.id)}
+                    style={[
+                      styles.groupChip,
+                      group.id === exerciseEditGroupId && styles.groupChipSelected,
+                    ]}
+                  >
+                    <Text style={styles.groupChipText}>{group.name}</Text>
+                  </Pressable>
+                ))}
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Guardar cambios del ejercicio"
+                onPress={() => void handleUpdateExercise()}
+                style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
+              >
+                <Text style={styles.primaryButtonText}>Guardar cambios</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Cancelar edición del ejercicio"
+                onPress={() => {
+                  setIsExerciseEditVisible(false);
+                  setExerciseEditError(null);
+                }}
+                style={({ pressed }) => [styles.cancelButton, pressed && styles.pressed]}
+              >
+                <Text style={styles.cancelButtonText}>Cancelar</Text>
+              </Pressable>
+              {exerciseEditError ? (
+                <Text accessibilityRole="alert" style={styles.errorText}>
+                  {exerciseEditError}
+                </Text>
+              ) : null}
+            </View>
+          ) : (
             <>
-              <SectionLabel>Descripción</SectionLabel>
-              <Text style={styles.supportText}>{selectedExercise.description}</Text>
+              <SectionLabel>Nombre</SectionLabel>
+              <Text style={styles.metricText}>{selectedExercise.name}</Text>
+              <SectionLabel>Grupo muscular</SectionLabel>
+              <Text style={styles.supportText}>
+                {selectedExerciseGroup?.name ?? 'Grupo no disponible'}
+              </Text>
+              {selectedExercise.description ? (
+                <>
+                  <SectionLabel>Descripción</SectionLabel>
+                  <Text style={styles.supportText}>{selectedExercise.description}</Text>
+                </>
+              ) : null}
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Editar ejercicio"
+                onPress={startExerciseEdit}
+                style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}
+              >
+                <Text style={styles.secondaryButtonText}>Editar ejercicio</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Eliminar ejercicio"
+                onPress={requestExerciseDeletion}
+                style={({ pressed }) => [styles.dangerButton, pressed && styles.pressed]}
+              >
+                <Text style={styles.dangerButtonText}>Eliminar ejercicio</Text>
+              </Pressable>
+              {isExerciseDeleteConfirmationVisible ? (
+                <View style={styles.confirmationBlock}>
+                  <Text style={styles.confirmationTitle}>¿Eliminar este ejercicio?</Text>
+                  <Text style={styles.supportText}>
+                    Esta acción no se puede deshacer.
+                  </Text>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Cancelar eliminación"
+                    onPress={() => setIsExerciseDeleteConfirmationVisible(false)}
+                    style={({ pressed }) => [styles.cancelButton, pressed && styles.pressed]}
+                  >
+                    <Text style={styles.cancelButtonText}>Cancelar</Text>
+                  </Pressable>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Confirmar eliminación"
+                    onPress={() => void confirmExerciseDeletion()}
+                    style={({ pressed }) => [styles.dangerButton, pressed && styles.pressed]}
+                  >
+                    <Text style={styles.dangerButtonText}>Confirmar eliminación</Text>
+                  </Pressable>
+                </View>
+              ) : null}
             </>
+          )}
+          {exerciseActionError ? (
+            <Text accessibilityRole="alert" style={styles.errorText}>
+              {exerciseActionError}
+            </Text>
           ) : null}
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Volver a ejercicios"
-            onPress={() => setSelectedExerciseId(null)}
+            onPress={() => {
+              setSelectedExerciseId(null);
+              setIsExerciseEditVisible(false);
+              setIsExerciseDeleteConfirmationVisible(false);
+            }}
             style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}
           >
             <Text style={styles.secondaryButtonText}>Volver a ejercicios</Text>
@@ -275,6 +543,7 @@ export function ExercisesScreen() {
           accessibilityLabel="Crear grupo muscular"
           onPress={() => {
             setGroupValidationError(null);
+            setGroupActionError(null);
             setGroupSuccessMessage(null);
             setIsGroupFormVisible(true);
           }}
@@ -342,21 +611,82 @@ export function ExercisesScreen() {
             <Text style={styles.groupChipText}>Todos</Text>
           </Pressable>
           {state.muscleGroups.map((group) => (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Filtrar por ${group.name}`}
-              accessibilityState={{ selected: group.id === selectedGroupId }}
-              key={group.id}
-              onPress={() => setSelectedGroupId(group.id)}
-              style={[
-                styles.groupChip,
-                group.id === selectedGroupId && styles.groupChipSelected,
-              ]}
-            >
-              <Text style={styles.groupChipText}>{group.name}</Text>
-            </Pressable>
+            <View key={group.id} style={styles.groupManagementRow}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Filtrar por ${group.name}`}
+                accessibilityState={{ selected: group.id === selectedGroupId }}
+                onPress={() => setSelectedGroupId(group.id)}
+                style={[
+                  styles.groupChip,
+                  group.id === selectedGroupId && styles.groupChipSelected,
+                ]}
+              >
+                <Text style={styles.groupChipText}>{group.name}</Text>
+              </Pressable>
+              <View style={styles.groupActions}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Renombrar grupo ${group.name}`}
+                  onPress={() => startGroupEdit(group.id)}
+                  style={({ pressed }) => [styles.smallActionButton, pressed && styles.pressed]}
+                >
+                  <Text style={styles.smallActionButtonText}>Renombrar</Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Eliminar grupo ${group.name}`}
+                  onPress={() => void handleDeleteGroup(group.id)}
+                  style={({ pressed }) => [styles.smallDangerButton, pressed && styles.pressed]}
+                >
+                  <Text style={styles.smallDangerButtonText}>Eliminar</Text>
+                </Pressable>
+              </View>
+            </View>
           ))}
         </View>
+        {groupEditId ? (
+          <View style={styles.formBlock}>
+            <TextInput
+              accessibilityLabel="Nombre del grupo muscular a editar"
+              autoCapitalize="words"
+              onChangeText={setGroupEditName}
+              style={styles.input}
+              testID="muscle-group-edit-name-input"
+              value={groupEditName}
+            />
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Guardar cambios del grupo muscular"
+              onPress={() => void handleUpdateGroup()}
+              style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
+            >
+              <Text style={styles.primaryButtonText}>Guardar cambios del grupo</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Cancelar edición del grupo muscular"
+              onPress={() => {
+                setGroupEditId(null);
+                setGroupEditName('');
+                setGroupEditError(null);
+              }}
+              style={({ pressed }) => [styles.cancelButton, pressed && styles.pressed]}
+            >
+              <Text style={styles.cancelButtonText}>Cancelar</Text>
+            </Pressable>
+          </View>
+        ) : null}
+        {groupEditError ? (
+          <Text accessibilityRole="alert" style={styles.errorText}>
+            {groupEditError}
+          </Text>
+        ) : null}
+        {groupActionError ? (
+          <Text accessibilityRole="alert" style={styles.errorText}>
+            {groupActionError}
+          </Text>
+        ) : null}
         {selectedGroup ? (
           <Text style={styles.supportText}>Filtro: {selectedGroup.name}</Text>
         ) : null}
@@ -463,7 +793,13 @@ export function ExercisesScreen() {
                   accessibilityRole="button"
                   accessibilityLabel={`Abrir detalle de ${exercise.name}`}
                   key={exercise.id}
-                  onPress={() => setSelectedExerciseId(exercise.id)}
+                  onPress={() => {
+                    setSelectedExerciseId(exercise.id);
+                    setIsExerciseEditVisible(false);
+                    setIsExerciseDeleteConfirmationVisible(false);
+                    setExerciseEditError(null);
+                    setExerciseActionError(null);
+                  }}
                   style={({ pressed }) => [styles.exerciseRow, pressed && styles.pressed]}
                 >
                   <View style={styles.listRowCopy}>
@@ -785,6 +1121,16 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 8,
   },
+  groupManagementRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  groupActions: {
+    flexDirection: 'row',
+    gap: 4,
+  },
   groupChip: {
     borderColor: '#CDE3D4',
     borderRadius: 99,
@@ -829,6 +1175,30 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '800',
   },
+  smallActionButton: {
+    borderColor: '#CDE3D4',
+    borderRadius: 8,
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  smallActionButtonText: {
+    color: '#287A4D',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  smallDangerButton: {
+    borderColor: '#F3C4C0',
+    borderRadius: 8,
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  smallDangerButtonText: {
+    color: '#B42318',
+    fontSize: 13,
+    fontWeight: '700',
+  },
   cancelButton: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -850,6 +1220,31 @@ const styles = StyleSheet.create({
   },
   primaryButtonText: {
     color: '#FFFFFF',
+    fontSize: 17,
+    fontWeight: '800',
+  },
+  dangerButton: {
+    alignItems: 'center',
+    backgroundColor: '#B42318',
+    borderRadius: 12,
+    justifyContent: 'center',
+    minHeight: 52,
+    paddingHorizontal: 18,
+  },
+  dangerButtonText: {
+    color: '#FFFFFF',
+    fontSize: 17,
+    fontWeight: '800',
+  },
+  confirmationBlock: {
+    borderColor: '#F3C4C0',
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 8,
+    padding: 12,
+  },
+  confirmationTitle: {
+    color: '#7A271A',
     fontSize: 17,
     fontWeight: '800',
   },
