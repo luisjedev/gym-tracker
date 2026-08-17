@@ -91,4 +91,26 @@ describe('versioned local app state', () => {
       'La versión de los datos guardados no es compatible.',
     );
   });
+
+  it('rejects fasting records without valid timestamps or durations', async () => {
+    const now = new Date(2026, 7, 17, 12, 0, 0);
+    const storage = new MemoryStorage();
+    await saveAppState(storage, createDefaultState(now));
+
+    const payload = JSON.parse(storage.value ?? '{}');
+    payload.state.fasting.active = { startedAt: 'not-a-date' };
+    payload.state.fasting.completed = [
+      {
+        id: 'fasting-1',
+        startedAt: '2026-08-17T10:00:00.000Z',
+        endedAt: '2026-08-17T09:00:00.000Z',
+        durationMinutes: -1,
+      },
+    ];
+    storage.value = JSON.stringify(payload);
+
+    await expect(loadAppState(storage, now)).rejects.toThrow(
+      'La versión de los datos guardados no es compatible.',
+    );
+  });
 });

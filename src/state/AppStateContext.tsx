@@ -10,6 +10,7 @@ import {
 } from 'react';
 import { AppState as ReactNativeAppState } from 'react-native';
 
+import { calculateFastingDurationMinutes } from '../storage/fasting';
 import { defaultStorage, type StorageAdapter } from '../storage/appStorage';
 import {
   ensureCurrentPeriods,
@@ -37,8 +38,11 @@ export interface AppStateContextValue {
   errorMessage: string | null;
   currentDay: DailyRecord | null;
   currentWeek: WeeklyRecord | null;
+  currentTime: Date;
   updateDailySteps(value: number): Promise<void>;
   updateDailyStepGoal(value: number): Promise<void>;
+  startFasting(): Promise<void>;
+  finishFasting(): Promise<void>;
   setStrengthSessionCompleted(id: string, completed: boolean): Promise<void>;
   markHeatSessionCompleted(): Promise<void>;
   undoHeatSession(): Promise<void>;
@@ -144,9 +148,11 @@ export function AppStateProvider({
   const [state, setState] = useState<AppState | null>(null);
   const [status, setStatus] = useState<AppLoadStatus>('loading');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [currentTime, setCurrentTime] = useState(() => now());
   const stateRef = useRef<AppState | null>(null);
   const strengthMutationQueueRef = useRef(Promise.resolve());
   const heatMutationQueueRef = useRef(Promise.resolve());
+  const fastingMutationQueueRef = useRef(Promise.resolve());
 
   const load = useCallback(
     async (isInitialLoad: boolean) => {
@@ -155,7 +161,9 @@ export function AppStateProvider({
       }
 
       try {
-        const loadedState = await loadAppState(storage, now());
+        const currentDate = now();
+        setCurrentTime(currentDate);
+        const loadedState = await loadAppState(storage, currentDate);
         stateRef.current = loadedState;
         setState(loadedState);
         setStatus('ready');
@@ -190,6 +198,71 @@ export function AppStateProvider({
     },
     [storage],
   );
+
+  const startFasting = useCallback(() => {
+    const operation = fastingMutationQueueRef.current.then(async () => {
+      const currentState = stateRef.current;
+      if (!currentState) {
+        throw new Error('Los datos todavía se están cargando.');
+      }
+
+      if (currentState.fasting.active) {
+        return;
+      }
+
+      const currentDate = now();
+      await persistState({
+        ...currentState,
+        fasting: {
+          ...currentState.fasting,
+          active: { startedAt: currentDate.toISOString() },
+        },
+      });
+      setCurrentTime(currentDate);
+    });
+    fastingMutationQueueRef.current = operation.catch(() => undefined);
+    return operation;
+  }, [now, persistState]);
+
+  const finishFasting = useCallback(() => {
+    const operation = fastingMutationQueueRef.current.then(async () => {
+      const currentState = stateRef.current;
+      if (!currentState) {
+        throw new Error('Los datos todavía se están cargando.');
+      }
+
+      const activeFasting = currentState.fasting.active;
+      if (!activeFasting) {
+        return;
+      }
+
+      const currentDate = now();
+      const endedAt = currentDate.toISOString();
+      const completedFasting = {
+        id: createUniqueId(
+          'fasting',
+          currentState.fasting.completed.map((fasting) => fasting.id),
+        ),
+        startedAt: activeFasting.startedAt,
+        endedAt,
+        durationMinutes: calculateFastingDurationMinutes(
+          activeFasting.startedAt,
+          endedAt,
+        ),
+      };
+
+      await persistState({
+        ...currentState,
+        fasting: {
+          active: null,
+          completed: [completedFasting, ...currentState.fasting.completed],
+        },
+      });
+      setCurrentTime(currentDate);
+    });
+    fastingMutationQueueRef.current = operation.catch(() => undefined);
+    return operation;
+  }, [now, persistState]);
 
   const setStrengthSessionCompleted = useCallback(
     (id: string, completed: boolean) => {
@@ -530,6 +603,14 @@ export function AppStateProvider({
   }, [load]);
 
   useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentTime(now());
+    }, 60_000);
+
+    return () => clearInterval(interval);
+  }, [now]);
+
+  useEffect(() => {
     const subscription = ReactNativeAppState.addEventListener(
       'change',
       (nextState) => {
@@ -635,8 +716,11 @@ export function AppStateProvider({
       currentWeek: currentWeekStart
         ? state?.weeklyRecords[currentWeekStart] ?? null
         : null,
+      currentTime,
       updateDailySteps,
       updateDailyStepGoal,
+      startFasting,
+      finishFasting,
       setStrengthSessionCompleted,
       markHeatSessionCompleted,
       undoHeatSession,
@@ -654,6 +738,7 @@ export function AppStateProvider({
     }),
     [
       currentDateKey,
+      currentTime,
       currentWeekStart,
       createExercise,
       createMuscleGroup,
@@ -664,6 +749,8 @@ export function AppStateProvider({
       markHeatSessionCompleted,
       state,
       status,
+      startFasting,
+      finishFasting,
       setStrengthSessionCompleted,
       undoHeatSession,
       updateDailySteps,

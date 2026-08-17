@@ -273,6 +273,28 @@ function isNonNegativeSafeInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }
 
+function isValidTimestamp(value: unknown): value is string {
+  return typeof value === 'string' && Number.isFinite(Date.parse(value));
+}
+
+function isValidActiveFasting(value: unknown): value is ActiveFasting {
+  return isRecord(value) && isValidTimestamp(value.startedAt);
+}
+
+function isValidCompletedFasting(value: unknown): value is CompletedFasting {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== 'string' ||
+    !isValidTimestamp(value.startedAt) ||
+    !isValidTimestamp(value.endedAt) ||
+    !isNonNegativeSafeInteger(value.durationMinutes)
+  ) {
+    return false;
+  }
+
+  return Date.parse(value.endedAt) >= Date.parse(value.startedAt);
+}
+
 function isValidDailyRecord(value: unknown): value is DailyRecord {
   return (
     isRecord(value) &&
@@ -326,8 +348,9 @@ function isValidState(value: unknown): value is AppState {
     isRecord(value.weeklyRecords) &&
     Object.values(value.weeklyRecords).every(isValidWeeklyRecord) &&
     isRecord(fasting) &&
-    (fasting.active === null || isRecord(fasting.active)) &&
-    Array.isArray(fasting.completed)
+    (fasting.active === null || isValidActiveFasting(fasting.active)) &&
+    Array.isArray(fasting.completed) &&
+    fasting.completed.every(isValidCompletedFasting)
   );
 }
 

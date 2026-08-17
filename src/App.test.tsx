@@ -1,4 +1,5 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { AppState } from 'react-native';
 
 import App from '../App';
 import type { StorageAdapter } from './storage/appStorage';
@@ -951,5 +952,149 @@ describe('Gym Tracker app flow', () => {
     await render(<App storage={storage} now={now} />);
     await waitFor(() => expect(screen.getByText('1 / 1 sesiones')).toBeTruthy());
     expect(screen.getByText('Estado: Completado')).toBeTruthy();
+  });
+
+  it('starts one fasting, shows its elapsed time, and restores the active fast', async () => {
+    const storage = new MemoryStorage();
+    const now = new Date(2026, 7, 17, 22, 30, 0);
+
+    const firstRender = await render(<App storage={storage} now={() => now} />);
+    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
+    expect(screen.getByText('No hay un ayuno activo.')).toBeTruthy();
+
+    await fireEvent.press(screen.getByRole('button', { name: 'Iniciar ayuno' }));
+
+    await waitFor(() => expect(screen.getByText('Ayuno activo')).toBeTruthy());
+    expect(screen.getByText(/Hora de inicio:.*22:30/)).toBeTruthy();
+    expect(screen.getByText('Duración: 0 min')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Iniciar ayuno' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Finalizar ayuno' })).toBeTruthy();
+
+    await firstRender.unmount();
+    await render(<App storage={storage} now={() => now} />);
+    await waitFor(() => expect(screen.getByText('Ayuno activo')).toBeTruthy());
+    expect(screen.getByText('Duración: 0 min')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Iniciar ayuno' })).toBeNull();
+  });
+
+  it('does not create a contradictory second active fasting on a double start', async () => {
+    const storage = new MemoryStorage();
+    const originalSetItem = storage.setItem.bind(storage);
+    let writes = 0;
+    let blockWrites = false;
+    let releaseWrite: (() => void) | null = null;
+    storage.setItem = async (key, value) => {
+      if (blockWrites) {
+        await new Promise<void>((resolve) => {
+          releaseWrite = resolve;
+        });
+      }
+      await originalSetItem(key, value);
+      writes += 1;
+    };
+
+    const rendered = await render(
+      <App storage={storage} now={() => new Date(2026, 7, 17, 22, 30, 0)} />,
+    );
+    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
+    const writesBeforeStart = writes;
+    blockWrites = true;
+    const startButton = screen.getByRole('button', { name: 'Iniciar ayuno' });
+    await fireEvent.press(startButton);
+    await fireEvent.press(startButton);
+
+    await waitFor(() => expect(releaseWrite).not.toBeNull());
+    blockWrites = false;
+    const resolveWrite = releaseWrite as (() => void) | null;
+    if (resolveWrite) {
+      resolveWrite();
+    }
+    await waitFor(() => expect(screen.getByText('Ayuno activo')).toBeTruthy());
+    expect(writes).toBe(writesBeforeStart + 1);
+    await rendered.unmount();
+  });
+
+  it('recalculates the active fasting duration after the clock advances', async () => {
+    jest.useFakeTimers();
+
+    try {
+      const storage = new MemoryStorage();
+      let currentNow = new Date(2026, 7, 17, 22, 30, 0);
+      const now = () => currentNow;
+
+      const rendered = await render(<App storage={storage} now={now} />);
+      await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
+      await fireEvent.press(screen.getByRole('button', { name: 'Iniciar ayuno' }));
+      await waitFor(() => expect(screen.getByText('Ayuno activo')).toBeTruthy());
+
+      currentNow = new Date(2026, 7, 17, 22, 45, 0);
+      await act(async () => {
+        jest.advanceTimersByTime(60_000);
+      });
+
+      expect(screen.getByText('Duración: 15 min')).toBeTruthy();
+      await rendered.unmount();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('refreshes the active fasting duration when the app returns to the foreground', async () => {
+    const storage = new MemoryStorage();
+    let currentNow = new Date(2026, 7, 17, 22, 30, 0);
+    const now = () => currentNow;
+    let handleAppStateChange: ((nextState: string) => void) | null = null;
+    const originalAddEventListener = AppState.addEventListener;
+    const addEventListener = jest.spyOn(AppState, 'addEventListener');
+    addEventListener.mockImplementation(((_type, listener) => {
+      handleAppStateChange = listener as (nextState: string) => void;
+      return { remove: jest.fn() };
+    }) as typeof AppState.addEventListener);
+
+    try {
+      const rendered = await render(<App storage={storage} now={now} />);
+      await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
+      await fireEvent.press(screen.getByRole('button', { name: 'Iniciar ayuno' }));
+      await waitFor(() => expect(screen.getByText('Ayuno activo')).toBeTruthy());
+
+      currentNow = new Date(2026, 7, 17, 23, 45, 0);
+      await act(async () => {
+        handleAppStateChange?.('active');
+        await Promise.resolve();
+      });
+
+      await waitFor(() => expect(screen.getByText('Duración: 1 h 15 min')).toBeTruthy());
+      await rendered.unmount();
+    } finally {
+      AppState.addEventListener = originalAddEventListener;
+    }
+  });
+
+  it('finishes a fasting across midnight and persists the last duration', async () => {
+    const storage = new MemoryStorage();
+    let currentNow = new Date(2026, 7, 17, 22, 30, 0);
+    const now = () => currentNow;
+
+    const firstRender = await render(<App storage={storage} now={now} />);
+    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
+    await fireEvent.press(screen.getByRole('button', { name: 'Iniciar ayuno' }));
+    await waitFor(() => expect(screen.getByText('Ayuno activo')).toBeTruthy());
+
+    currentNow = new Date(2026, 7, 18, 0, 30, 0);
+    await fireEvent.press(screen.getByRole('button', { name: 'Finalizar ayuno' }));
+    await waitFor(() => expect(screen.getByText('No hay un ayuno activo.')).toBeTruthy());
+    expect(screen.getByText('Último ayuno: 2 h 0 min')).toBeTruthy();
+    expect(screen.getByText('Duración media: 2 h 0 min')).toBeTruthy();
+
+    await firstRender.unmount();
+    const rehydrated = await render(<App storage={storage} now={() => currentNow} />);
+    await waitFor(() => expect(screen.getByText('No hay un ayuno activo.')).toBeTruthy());
+    expect(screen.getByText('Último ayuno: 2 h 0 min')).toBeTruthy();
+    expect(screen.getByText('Duración media: 2 h 0 min')).toBeTruthy();
+
+    await fireEvent.press(screen.getByRole('button', { name: 'Iniciar ayuno' }));
+    await waitFor(() => expect(screen.getByText('Ayuno activo')).toBeTruthy());
+    expect(screen.getByText('Duración media: 2 h 0 min')).toBeTruthy();
+    await rehydrated.unmount();
   });
 });

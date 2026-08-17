@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { calculateFastingDurationMinutes, getAverageFastingDurationMinutes } from './storage/fasting';
 import { useAppState } from './state/AppStateContext';
 import {
   formatDateKey,
@@ -35,6 +36,30 @@ function parseNonNegativeInteger(value: string): number | null {
 
   const parsedValue = Number(normalizedValue);
   return Number.isSafeInteger(parsedValue) ? parsedValue : null;
+}
+
+function formatFastingDuration(durationMinutes: number): string {
+  const safeMinutes = Math.max(0, Math.floor(durationMinutes));
+  const hours = Math.floor(safeMinutes / 60);
+  const minutes = safeMinutes % 60;
+
+  return hours > 0 ? `${hours} h ${minutes} min` : `${minutes} min`;
+}
+
+function formatFastingStart(startedAt: string): string {
+  const date = new Date(startedAt);
+  const datePart = date.toLocaleDateString('es-ES', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
+  const timePart = date.toLocaleTimeString('es-ES', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+
+  return `${datePart}, ${timePart}`;
 }
 
 function Screen({ title, children }: { title: string; children: ReactNode }) {
@@ -175,10 +200,13 @@ export function HomeScreen() {
   const {
     state,
     currentDay,
+    currentTime,
     currentWeek,
     errorMessage,
+    finishFasting,
     markHeatSessionCompleted,
     setStrengthSessionCompleted,
+    startFasting,
     undoHeatSession,
     updateDailySteps,
   } = useAppState();
@@ -220,6 +248,21 @@ export function HomeScreen() {
   const heatGoal = currentWeek?.heatGoal ?? state.settings.heatWeeklyGoal;
   const heatStatus = getStrengthProgressStatus(heatCompleted, heatGoal);
   const heatRemaining = Math.max(heatGoal - heatCompleted, 0);
+  const activeFasting = state.fasting.active;
+  const activeFastingDuration = activeFasting
+    ? calculateFastingDurationMinutes(
+        activeFasting.startedAt,
+        currentTime.toISOString(),
+      )
+    : null;
+  const lastCompletedFasting = state.fasting.completed[0] ?? null;
+  const averageFastingDuration = getAverageFastingDurationMinutes(
+    state.fasting.completed,
+  );
+  const averageFastingDurationLabel =
+    averageFastingDuration === null
+      ? 'Sin ayunos finalizados'
+      : formatFastingDuration(averageFastingDuration);
 
   async function handleSaveSteps() {
     setStepsValidationError(null);
@@ -234,6 +277,22 @@ export function HomeScreen() {
       await updateDailySteps(parsedSteps);
     } catch {
       // El contexto conserva el valor anterior y muestra el error de almacenamiento.
+    }
+  }
+
+  async function handleStartFasting() {
+    try {
+      await startFasting();
+    } catch {
+      // El contexto conserva el estado anterior y muestra el error de almacenamiento.
+    }
+  }
+
+  async function handleFinishFasting() {
+    try {
+      await finishFasting();
+    } catch {
+      // El contexto conserva el estado anterior y muestra el error de almacenamiento.
     }
   }
 
@@ -318,6 +377,53 @@ export function HomeScreen() {
             {errorMessage}
           </Text>
         ) : null}
+      </Card>
+
+      <Card>
+        <SectionLabel>Ayuno</SectionLabel>
+        {activeFasting && activeFastingDuration !== null ? (
+          <>
+            <Text style={styles.metricText}>Ayuno activo</Text>
+            <Text style={styles.supportText}>
+              Hora de inicio: {formatFastingStart(activeFasting.startedAt)}
+            </Text>
+            <Text style={styles.supportText}>
+              Duración: {formatFastingDuration(activeFastingDuration)}
+            </Text>
+            <Text style={styles.supportText}>
+              Duración media: {averageFastingDurationLabel}
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Finalizar ayuno"
+              onPress={() => void handleFinishFasting()}
+              style={({ pressed }) => [styles.dangerButton, pressed && styles.pressed]}
+            >
+              <Text style={styles.dangerButtonText}>Finalizar ayuno</Text>
+            </Pressable>
+          </>
+        ) : (
+          <>
+            <Text style={styles.metricText}>No hay un ayuno activo.</Text>
+            <Text style={styles.supportText}>
+              Último ayuno:{' '}
+              {lastCompletedFasting
+                ? formatFastingDuration(lastCompletedFasting.durationMinutes)
+                : 'Sin ayunos finalizados'}
+            </Text>
+            <Text style={styles.supportText}>
+              Duración media: {averageFastingDurationLabel}
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Iniciar ayuno"
+              onPress={() => void handleStartFasting()}
+              style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
+            >
+              <Text style={styles.primaryButtonText}>Iniciar ayuno</Text>
+            </Pressable>
+          </>
+        )}
       </Card>
 
       <Card>
