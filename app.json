@@ -11,10 +11,12 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "plugins": [
-      "expo-dev-client"
+      "expo-dev-client",
+      "expo-notifications"
     ],
     "android": {
       "package": "com.luisjedev.gymtracker",
+      "permissions": ["SCHEDULE_EXACT_ALARM"],
       "versionCode": 1,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4EA",

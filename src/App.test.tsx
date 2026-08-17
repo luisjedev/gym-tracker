@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-
 import { AppState } from 'react-native';
 
 import App from '../App';
+import type { WaterNotificationAdapter, WaterPermissionStatus, WaterReminderTime } from './notifications/waterNotifications';
 import type { StorageAdapter } from './storage/appStorage';
 
 class MemoryStorage implements StorageAdapter {
@@ -23,6 +24,57 @@ class MemoryStorage implements StorageAdapter {
     }
 
     this.values.set(key, value);
+  }
+}
+
+class ControlledWaterNotifications implements WaterNotificationAdapter {
+  permission: WaterPermissionStatus = 'undetermined';
+  permissionAfterRequest: WaterPermissionStatus | null = null;
+  permissionRequests = 0;
+  channelCreations = 0;
+  readonly scheduled = new Map<string, WaterReminderTime>();
+  readonly allScheduledIds = new Set(['foreign-reminder']);
+  readonly cancelled: string[] = [];
+  readonly foreignIds = new Set(['foreign-reminder']);
+  foreignCancellationAttempts = 0;
+  private nextId = 1;
+
+  async getPermissionStatus() {
+    return this.permission;
+  }
+
+  async requestPermission() {
+    this.permissionRequests += 1;
+    const result = this.permissionAfterRequest ?? this.permission;
+    this.permission = result;
+    return result;
+  }
+
+  async createChannel() {
+    this.channelCreations += 1;
+  }
+
+  async getScheduledWaterReminderIds() {
+    return [...this.scheduled.keys()];
+  }
+
+  async scheduleWaterReminder(time: WaterReminderTime) {
+    const id = `water-${this.nextId}`;
+    this.nextId += 1;
+    this.scheduled.set(id, time);
+    this.allScheduledIds.add(id);
+    return id;
+  }
+
+  async cancelWaterReminder(id: string) {
+    if (this.foreignIds.has(id)) {
+      this.foreignCancellationAttempts += 1;
+      return;
+    }
+
+    this.cancelled.push(id);
+    this.scheduled.delete(id);
+    this.allScheduledIds.delete(id);
   }
 }
 
@@ -1096,5 +1148,279 @@ describe('Gym Tracker app flow', () => {
     await waitFor(() => expect(screen.getByText('Ayuno activo')).toBeTruthy());
     expect(screen.getByText('Duración media: 2 h 0 min')).toBeTruthy();
     await rehydrated.unmount();
+  });
+
+  it('shows the default water settings and schedules the eight local reminders after permission', async () => {
+    const storage = new MemoryStorage();
+    const notifications = new ControlledWaterNotifications();
+    notifications.permission = 'undetermined';
+    notifications.permissionAfterRequest = 'granted';
+
+    const firstRender = await render(
+      <App
+        notifications={notifications}
+        now={() => new Date(2026, 7, 17, 12)}
+        storage={storage}
+      />,
+    );
+    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
+    await fireEvent.press(screen.getByRole('button', { name: /Ajustes/ }));
+    await waitFor(() =>
+      expect(screen.getByTestId('water-start-time-input')).toBeTruthy(),
+    );
+
+    expect(screen.getByTestId('water-start-time-input').props.value).toBe('08:00');
+    expect(screen.getByTestId('water-end-time-input').props.value).toBe('22:00');
+    expect(screen.getByTestId('water-interval-input').props.value).toBe('2');
+    expect(screen.getByText('Inactivos')).toBeTruthy();
+
+    await fireEvent(
+      screen.getByTestId('water-enabled-switch'),
+      'valueChange',
+      true,
+    );
+
+    await waitFor(() => expect(screen.getByText('Activos')).toBeTruthy());
+    expect(notifications.permissionRequests).toBe(1);
+    expect(notifications.channelCreations).toBe(1);
+    expect([...notifications.scheduled.values()]).toEqual([
+      { hour: 8, minute: 0 },
+      { hour: 10, minute: 0 },
+      { hour: 12, minute: 0 },
+      { hour: 14, minute: 0 },
+      { hour: 16, minute: 0 },
+      { hour: 18, minute: 0 },
+      { hour: 20, minute: 0 },
+      { hour: 22, minute: 0 },
+    ]);
+
+    await firstRender.unmount();
+    await render(
+      <App
+        notifications={notifications}
+        now={() => new Date(2026, 7, 17, 12)}
+        storage={storage}
+      />,
+    );
+    await fireEvent.press(screen.getByRole('button', { name: /Ajustes/ }));
+    await waitFor(() => expect(screen.getByText('Activos')).toBeTruthy());
+  });
+
+  it('turns active reminders off when Android permission is revoked', async () => {
+    const storage = new MemoryStorage();
+    const notifications = new ControlledWaterNotifications();
+    notifications.permission = 'granted';
+
+    const firstRender = await render(
+      <App
+        notifications={notifications}
+        now={() => new Date(2026, 7, 17, 12)}
+        storage={storage}
+      />,
+    );
+    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
+    await fireEvent.press(screen.getByRole('button', { name: /Ajustes/ }));
+    await fireEvent(
+      screen.getByTestId('water-enabled-switch'),
+      'valueChange',
+      true,
+    );
+    await waitFor(() => expect(notifications.scheduled.size).toBe(8));
+    notifications.permission = 'denied';
+    await fireEvent.changeText(screen.getByTestId('water-interval-input'), '3');
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Guardar recordatorios de agua' }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          'No se concedió el permiso de notificaciones. Actívalo en Ajustes de Android para recibir avisos.',
+        ),
+      ).toBeTruthy(),
+    );
+    expect(screen.getByText('Inactivos')).toBeTruthy();
+    await firstRender.unmount();
+
+    notifications.permission = 'denied';
+    await render(
+      <App
+        notifications={notifications}
+        now={() => new Date(2026, 7, 17, 12)}
+        storage={storage}
+      />,
+    );
+    await waitFor(() => expect(screen.getByText('Inactivos')).toBeTruthy());
+    await fireEvent.press(screen.getByRole('button', { name: /Ajustes/ }));
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          'Permiso de notificaciones denegado. Actívalo en Ajustes de Android para recibir avisos.',
+        ),
+      ).toBeTruthy(),
+    );
+    expect(notifications.scheduled.size).toBe(0);
+  });
+
+  it('keeps the loaded state and reports a recoverable error when revocation cannot be persisted', async () => {
+    const storage = new MemoryStorage();
+    const notifications = new ControlledWaterNotifications();
+    notifications.permission = 'granted';
+
+    const firstRender = await render(
+      <App
+        notifications={notifications}
+        now={() => new Date(2026, 7, 17, 12)}
+        storage={storage}
+      />,
+    );
+    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
+    await fireEvent.press(screen.getByRole('button', { name: /Ajustes/ }));
+    await fireEvent(
+      screen.getByTestId('water-enabled-switch'),
+      'valueChange',
+      true,
+    );
+    await waitFor(() => expect(notifications.scheduled.size).toBe(8));
+    await firstRender.unmount();
+
+    notifications.permission = 'denied';
+    storage.failWrites = true;
+    await render(
+      <App
+        notifications={notifications}
+        now={() => new Date(2026, 7, 17, 12)}
+        storage={storage}
+      />,
+    );
+    await waitFor(() => expect(screen.getByText('Inactivos')).toBeTruthy());
+    expect(
+      screen.getByText(
+        'No se pudo guardar el cambio. Tus datos anteriores siguen intactos.',
+      ),
+    ).toBeTruthy();
+    expect(notifications.scheduled.size).toBe(8);
+  });
+
+  it('explains denied notification permission without enabling water reminders', async () => {
+    const notifications = new ControlledWaterNotifications();
+    notifications.permission = 'denied';
+
+    await render(
+      <App
+        notifications={notifications}
+        now={() => new Date(2026, 7, 17, 12)}
+        storage={new MemoryStorage()}
+      />,
+    );
+    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
+    await fireEvent.press(screen.getByRole('button', { name: /Ajustes/ }));
+    await fireEvent(
+      screen.getByTestId('water-enabled-switch'),
+      'valueChange',
+      true,
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          'No se concedió el permiso de notificaciones. Actívalo en Ajustes de Android para recibir avisos.',
+        ),
+      ).toBeTruthy(),
+    );
+    expect(screen.getByText('Inactivos')).toBeTruthy();
+    expect(screen.getByTestId('water-enabled-switch').props.value).toBe(false);
+    expect(notifications.scheduled.size).toBe(0);
+    expect(notifications.channelCreations).toBe(1);
+  });
+
+  it('validates the water window before changing the local schedule', async () => {
+    const notifications = new ControlledWaterNotifications();
+    notifications.permission = 'granted';
+
+    await render(
+      <App
+        notifications={notifications}
+        now={() => new Date(2026, 7, 17, 12)}
+        storage={new MemoryStorage()}
+      />,
+    );
+    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
+    await fireEvent.press(screen.getByRole('button', { name: /Ajustes/ }));
+
+    await fireEvent.changeText(screen.getByTestId('water-start-time-input'), '22:00');
+    await fireEvent.changeText(screen.getByTestId('water-end-time-input'), '08:00');
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Guardar recordatorios de agua' }),
+    );
+    expect(
+      screen.getByText('La hora inicial debe ser anterior a la hora final.'),
+    ).toBeTruthy();
+    expect(notifications.scheduled.size).toBe(0);
+
+    await fireEvent.changeText(screen.getByTestId('water-start-time-input'), '08:00');
+    await fireEvent.changeText(screen.getByTestId('water-end-time-input'), '22:00');
+    await fireEvent.changeText(screen.getByTestId('water-interval-input'), '0');
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Guardar recordatorios de agua' }),
+    );
+    expect(
+      screen.getByText('El intervalo debe ser un número positivo.'),
+    ).toBeTruthy();
+  });
+
+  it('replaces and cancels only water reminders without duplicates', async () => {
+    const notifications = new ControlledWaterNotifications();
+    notifications.permission = 'granted';
+
+    await render(
+      <App
+        notifications={notifications}
+        now={() => new Date(2026, 7, 17, 12)}
+        storage={new MemoryStorage()}
+      />,
+    );
+    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
+    await fireEvent.press(screen.getByRole('button', { name: /Ajustes/ }));
+    await fireEvent(
+      screen.getByTestId('water-enabled-switch'),
+      'valueChange',
+      true,
+    );
+    await waitFor(() => expect(notifications.scheduled.size).toBe(8));
+    const firstScheduleIds = [...notifications.scheduled.keys()];
+
+    await fireEvent.changeText(screen.getByTestId('water-start-time-input'), '09:00');
+    await fireEvent.changeText(screen.getByTestId('water-end-time-input'), '21:00');
+    await fireEvent.changeText(screen.getByTestId('water-interval-input'), '3');
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Guardar recordatorios de agua' }),
+    );
+
+    await waitFor(() =>
+      expect([...notifications.scheduled.values()]).toEqual([
+        { hour: 9, minute: 0 },
+        { hour: 12, minute: 0 },
+        { hour: 15, minute: 0 },
+        { hour: 18, minute: 0 },
+        { hour: 21, minute: 0 },
+      ]),
+    );
+    expect(notifications.cancelled).toEqual(firstScheduleIds);
+    expect(notifications.scheduled.size).toBe(5);
+    expect(notifications.foreignCancellationAttempts).toBe(0);
+    expect(notifications.allScheduledIds).toEqual(
+      new Set(['foreign-reminder', ...notifications.scheduled.keys()]),
+    );
+
+    await fireEvent(
+      screen.getByTestId('water-enabled-switch'),
+      'valueChange',
+      false,
+    );
+    await waitFor(() => expect(screen.getByText('Inactivos')).toBeTruthy());
+    expect(notifications.scheduled.size).toBe(0);
+    expect(notifications.cancelled).toHaveLength(13);
+    expect(notifications.foreignCancellationAttempts).toBe(0);
+    expect(notifications.allScheduledIds).toEqual(new Set(['foreign-reminder']));
   });
 });

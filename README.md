@@ -48,6 +48,8 @@ Crea un APK de desarrollo en la infraestructura de Expo:
 npx eas-cli@latest build --platform android --profile development
 ```
 
+La build incluye `expo-notifications`; en Android 12 o posterior también declara
+`SCHEDULE_EXACT_ALARM` para que los avisos locales diarios puedan respetar sus horas.
 En la primera build, permite que EAS genere y administre el keystore Android. Cuando termine:
 
 1. Abre en el teléfono el enlace mostrado por EAS.

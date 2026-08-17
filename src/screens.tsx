@@ -5,6 +5,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -14,12 +15,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { calculateFastingDurationMinutes, getAverageFastingDurationMinutes } from './storage/fasting';
 import { useAppState } from './state/AppStateContext';
 import {
+  DEFAULT_WATER_SETTINGS,
   formatDateKey,
   sortExercises,
   type Exercise,
   type MuscleGroup,
   type StrengthSession,
   type StrengthSessionInput,
+  type WaterSettings,
 } from './storage/schema';
 import type { RootTabParamList } from './navigation/types';
 
@@ -36,6 +39,17 @@ function parseNonNegativeInteger(value: string): number | null {
 
   const parsedValue = Number(normalizedValue);
   return Number.isSafeInteger(parsedValue) ? parsedValue : null;
+}
+
+function parsePositiveNumber(value: string): number | null {
+  const normalizedValue = value.trim().replace(',', '.');
+
+  if (!/^\d+(?:\.\d+)?$/.test(normalizedValue)) {
+    return null;
+  }
+
+  const parsedValue = Number(normalizedValue);
+  return Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : null;
 }
 
 function formatFastingDuration(durationMinutes: number): string {
@@ -209,6 +223,7 @@ export function HomeScreen() {
     startFasting,
     undoHeatSession,
     updateDailySteps,
+    waterPermissionStatus,
   } = useAppState();
   const navigation = useNavigation<BottomTabNavigationProp<RootTabParamList>>();
   const [stepsInput, setStepsInput] = useState(
@@ -248,6 +263,8 @@ export function HomeScreen() {
   const heatGoal = currentWeek?.heatGoal ?? state.settings.heatWeeklyGoal;
   const heatStatus = getStrengthProgressStatus(heatCompleted, heatGoal);
   const heatRemaining = Math.max(heatGoal - heatCompleted, 0);
+  const waterRemindersActive =
+    state.settings.water.enabled && waterPermissionStatus === 'granted';
   const activeFasting = state.fasting.active;
   const activeFastingDuration = activeFasting
     ? calculateFastingDurationMinutes(
@@ -514,14 +531,18 @@ export function HomeScreen() {
       <Card>
         <SectionLabel>Recordatorios de agua</SectionLabel>
         <Text style={styles.metricText}>
-          {state.settings.water.enabled ? 'Activos' : 'Inactivos'}
+          {waterRemindersActive ? 'Activos' : 'Inactivos'}
         </Text>
         <Text style={styles.supportText}>
           {state.settings.water.startTime}–{state.settings.water.endTime} cada{' '}
           {state.settings.water.intervalHours} horas
         </Text>
         <Text style={styles.emptyText}>
-          Los avisos no se programan todavía. Se activarán en una próxima entrega.
+          {waterRemindersActive
+            ? 'Los avisos se repiten cada día dentro de la ventana configurada.'
+            : waterPermissionStatus === 'denied'
+              ? 'El permiso de notificaciones está denegado. Revísalo desde Ajustes.'
+              : 'Activa los avisos desde Ajustes cuando quieras recibirlos.'}
         </Text>
       </Card>
     </Screen>
@@ -1238,9 +1259,12 @@ export function SettingsScreen() {
     updateDailyStepGoal,
     updateHeatWeeklyGoal,
     updateStrengthConfiguration,
+    updateWaterSettings,
+    waterPermissionStatus,
   } = useAppState();
   const currentGoal = currentDay?.stepGoal ?? state?.settings.dailyStepGoal ?? 0;
   const configuredHeatGoal = state?.settings.heatWeeklyGoal ?? 0;
+  const configuredWaterSettings = state?.settings.water ?? DEFAULT_WATER_SETTINGS;
   const strengthSessions = useMemo(
     () => state?.settings.strengthSessions ?? [],
     [state?.settings.strengthSessions],
@@ -1259,6 +1283,13 @@ export function SettingsScreen() {
   );
   const [strengthValidationError, setStrengthValidationError] = useState<string | null>(null);
   const [strengthSuccessMessage, setStrengthSuccessMessage] = useState<string | null>(null);
+  const [waterStartTime, setWaterStartTime] = useState(configuredWaterSettings.startTime);
+  const [waterEndTime, setWaterEndTime] = useState(configuredWaterSettings.endTime);
+  const [waterInterval, setWaterInterval] = useState(
+    String(configuredWaterSettings.intervalHours),
+  );
+  const [waterValidationError, setWaterValidationError] = useState<string | null>(null);
+  const [waterSuccessMessage, setWaterSuccessMessage] = useState<string | null>(null);
 
   useEffect(() => {
     // Refresh the form when a new local day becomes current.
@@ -1282,9 +1313,25 @@ export function SettingsScreen() {
     setStrengthValidationError(null);
   }, [strengthSessions]);
 
+  useEffect(() => {
+    // Keep the notification editor aligned with the persisted configuration.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setWaterStartTime(configuredWaterSettings.startTime);
+    setWaterEndTime(configuredWaterSettings.endTime);
+    setWaterInterval(String(configuredWaterSettings.intervalHours));
+    setWaterValidationError(null);
+  }, [
+    configuredWaterSettings.endTime,
+    configuredWaterSettings.intervalHours,
+    configuredWaterSettings.startTime,
+  ]);
+
   if (!state) {
     return null;
   }
+
+  const waterRemindersActive =
+    state.settings.water.enabled && waterPermissionStatus === 'granted';
 
   function handleStrengthSessionCountChange(value: string) {
     setStrengthSessionCount(value);
@@ -1398,6 +1445,57 @@ export function SettingsScreen() {
       setHeatSuccessMessage('Objetivo HEAT guardado para la próxima semana');
     } catch {
       // El contexto conserva el valor anterior y muestra el error de almacenamiento.
+    }
+  }
+
+  async function handleWaterToggle(enabled: boolean) {
+    if (enabled) {
+      await handleSaveWaterSettings(true);
+      return;
+    }
+
+    setWaterValidationError(null);
+    setWaterSuccessMessage(null);
+
+    try {
+      await updateWaterSettings({
+        ...configuredWaterSettings,
+        enabled: false,
+      });
+      setWaterSuccessMessage('Recordatorios de agua desactivados');
+    } catch (error) {
+      setWaterValidationError(
+        error instanceof Error
+          ? error.message
+          : 'No se pudieron desactivar los recordatorios de agua.',
+      );
+    }
+  }
+
+  async function handleSaveWaterSettings(enabled = configuredWaterSettings.enabled) {
+    setWaterValidationError(null);
+    setWaterSuccessMessage(null);
+    const parsedInterval = parsePositiveNumber(waterInterval);
+    const settings: WaterSettings = {
+      enabled,
+      startTime: waterStartTime.trim(),
+      endTime: waterEndTime.trim(),
+      intervalHours: parsedInterval ?? Number.NaN,
+    };
+
+    try {
+      await updateWaterSettings(settings);
+      setWaterSuccessMessage(
+        enabled
+          ? 'Recordatorios de agua activados'
+          : 'Configuración de recordatorios de agua guardada',
+      );
+    } catch (error) {
+      setWaterValidationError(
+        error instanceof Error
+          ? error.message
+          : 'No se pudo guardar la configuración de agua.',
+      );
     }
   }
 
@@ -1554,14 +1652,84 @@ export function SettingsScreen() {
 
       <Card>
         <SectionLabel>Recordatorios de agua</SectionLabel>
-        <Text style={styles.metricText}>Inactivos</Text>
+        <View style={styles.switchRow}>
+          <View style={styles.switchCopy}>
+            <Text style={styles.metricText}>
+              {waterRemindersActive ? 'Activos' : 'Inactivos'}
+            </Text>
+            <Text style={styles.supportText}>
+              {waterPermissionStatus === 'denied'
+                ? 'Permiso de notificaciones denegado. Actívalo en Ajustes de Android para recibir avisos.'
+                : 'Activa los avisos para solicitar el permiso y programar recordatorios locales.'}
+            </Text>
+          </View>
+          <Switch
+            accessibilityLabel="Activar recordatorios de agua"
+            accessibilityRole="switch"
+            onValueChange={(enabled) => void handleWaterToggle(enabled)}
+            testID="water-enabled-switch"
+            value={waterRemindersActive}
+          />
+        </View>
         <Text style={styles.supportText}>
-          Configurados de {state.settings.water.startTime} a {state.settings.water.endTime}{' '}
-          cada {state.settings.water.intervalHours} horas.
+          Configurados de {waterStartTime} a {waterEndTime} cada {waterInterval} horas.
         </Text>
-        <Text style={styles.emptyText}>
-          No se han solicitado permisos ni programado notificaciones.
-        </Text>
+        <TextInput
+          accessibilityLabel="Hora inicial de recordatorios de agua"
+          autoCapitalize="none"
+          onChangeText={(value) => {
+            setWaterStartTime(value);
+            setWaterValidationError(null);
+            setWaterSuccessMessage(null);
+          }}
+          placeholder="08:00"
+          style={styles.input}
+          testID="water-start-time-input"
+          value={waterStartTime}
+        />
+        <TextInput
+          accessibilityLabel="Hora final de recordatorios de agua"
+          autoCapitalize="none"
+          onChangeText={(value) => {
+            setWaterEndTime(value);
+            setWaterValidationError(null);
+            setWaterSuccessMessage(null);
+          }}
+          placeholder="22:00"
+          style={styles.input}
+          testID="water-end-time-input"
+          value={waterEndTime}
+        />
+        <TextInput
+          accessibilityLabel="Intervalo de recordatorios de agua"
+          autoCapitalize="none"
+          keyboardType="decimal-pad"
+          onChangeText={(value) => {
+            setWaterInterval(value);
+            setWaterValidationError(null);
+            setWaterSuccessMessage(null);
+          }}
+          placeholder="Intervalo en horas"
+          style={styles.input}
+          testID="water-interval-input"
+          value={waterInterval}
+        />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Guardar recordatorios de agua"
+          onPress={() => void handleSaveWaterSettings()}
+          style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
+        >
+          <Text style={styles.primaryButtonText}>Guardar recordatorios de agua</Text>
+        </Pressable>
+        {waterValidationError ? (
+          <Text accessibilityRole="alert" style={styles.errorText}>
+            {waterValidationError}
+          </Text>
+        ) : null}
+        {waterSuccessMessage ? (
+          <Text style={styles.successText}>{waterSuccessMessage}</Text>
+        ) : null}
       </Card>
 
       <Card>
@@ -1734,6 +1902,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
     padding: 12,
+  },
+  switchRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
+  },
+  switchCopy: {
+    flex: 1,
+    gap: 4,
   },
   listRow: {
     alignItems: 'center',

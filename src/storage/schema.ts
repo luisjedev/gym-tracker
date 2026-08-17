@@ -277,6 +277,39 @@ function isValidTimestamp(value: unknown): value is string {
   return typeof value === 'string' && Number.isFinite(Date.parse(value));
 }
 
+function parseWaterClockMinutes(value: unknown): number | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(value.trim());
+  if (!match) {
+    return null;
+  }
+
+  return Number(match[1]) * 60 + Number(match[2]);
+}
+
+export function isValidWaterSettings(value: unknown): value is WaterSettings {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  const startMinutes = parseWaterClockMinutes(value.startTime);
+  const endMinutes = parseWaterClockMinutes(value.endTime);
+
+  return (
+    typeof value.enabled === 'boolean' &&
+    startMinutes !== null &&
+    endMinutes !== null &&
+    startMinutes < endMinutes &&
+    typeof value.intervalHours === 'number' &&
+    Number.isFinite(value.intervalHours) &&
+    value.intervalHours > 0 &&
+    Number.isSafeInteger(value.intervalHours * 60)
+  );
+}
+
 function isValidActiveFasting(value: unknown): value is ActiveFasting {
   return isRecord(value) && isValidTimestamp(value.startedAt);
 }
@@ -334,13 +367,7 @@ function isValidState(value: unknown): value is AppState {
     typeof settings.heatWeeklyGoal === 'number' &&
     Number.isInteger(settings.heatWeeklyGoal) &&
     settings.heatWeeklyGoal >= 0 &&
-    isRecord(settings.water) &&
-    typeof settings.water.enabled === 'boolean' &&
-    typeof settings.water.startTime === 'string' &&
-    typeof settings.water.endTime === 'string' &&
-    typeof settings.water.intervalHours === 'number' &&
-    Number.isInteger(settings.water.intervalHours) &&
-    settings.water.intervalHours > 0 &&
+    isValidWaterSettings(settings.water) &&
     Array.isArray(value.muscleGroups) &&
     Array.isArray(value.exercises) &&
     isRecord(value.dailyRecords) &&

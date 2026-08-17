@@ -92,6 +92,20 @@ describe('versioned local app state', () => {
     );
   });
 
+  it('rejects water settings that cannot be scheduled', async () => {
+    const now = new Date(2026, 7, 17, 12, 0, 0);
+    const storage = new MemoryStorage();
+    await saveAppState(storage, createDefaultState(now));
+
+    const payload = JSON.parse(storage.value ?? '{}');
+    payload.state.settings.water.endTime = '07:00';
+    storage.value = JSON.stringify(payload);
+
+    await expect(loadAppState(storage, now)).rejects.toThrow(
+      'La versión de los datos guardados no es compatible.',
+    );
+  });
+
   it('rejects fasting records without valid timestamps or durations', async () => {
     const now = new Date(2026, 7, 17, 12, 0, 0);
     const storage = new MemoryStorage();

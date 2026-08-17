@@ -11,6 +11,14 @@ import {
 import { AppState as ReactNativeAppState } from 'react-native';
 
 import { calculateFastingDurationMinutes } from '../storage/fasting';
+import {
+  defaultWaterNotificationAdapter,
+  getWaterReminderTimes,
+  validateWaterSettings,
+  type WaterNotificationAdapter,
+  type WaterPermissionStatus,
+  type WaterReminderTime,
+} from '../notifications/waterNotifications';
 import { defaultStorage, type StorageAdapter } from '../storage/appStorage';
 import {
   ensureCurrentPeriods,
@@ -25,6 +33,7 @@ import {
   type NewExerciseInput,
   type StrengthSession,
   type StrengthSessionInput,
+  type WaterSettings,
   type WeeklyRecord,
 } from '../storage/schema';
 
@@ -39,6 +48,7 @@ export interface AppStateContextValue {
   currentDay: DailyRecord | null;
   currentWeek: WeeklyRecord | null;
   currentTime: Date;
+  waterPermissionStatus: WaterPermissionStatus | null;
   updateDailySteps(value: number): Promise<void>;
   updateDailyStepGoal(value: number): Promise<void>;
   startFasting(): Promise<void>;
@@ -48,6 +58,7 @@ export interface AppStateContextValue {
   undoHeatSession(): Promise<void>;
   updateHeatWeeklyGoal(value: number): Promise<void>;
   updateStrengthConfiguration(sessions: StrengthSessionInput[]): Promise<void>;
+  updateWaterSettings(settings: WaterSettings): Promise<void>;
   createMuscleGroup(name: string): Promise<void>;
   updateMuscleGroup(id: string, name: string): Promise<void>;
   deleteMuscleGroup(id: string): Promise<void>;
@@ -60,6 +71,7 @@ export interface AppStateContextValue {
 export interface AppStateProviderProps extends PropsWithChildren {
   storage?: StorageAdapter;
   now?: NowProvider;
+  notifications?: WaterNotificationAdapter;
 }
 
 const defaultNow: NowProvider = () => new Date();
@@ -138,21 +150,47 @@ function normalizeStrengthConfiguration(
   });
 }
 
+const WATER_PERMISSION_ERROR =
+  'No se concedió el permiso de notificaciones. Actívalo en Ajustes de Android para recibir avisos.';
+
+async function cancelWaterReminders(
+  notifications: WaterNotificationAdapter,
+): Promise<void> {
+  const identifiers = await notifications.getScheduledWaterReminderIds();
+
+  for (const identifier of identifiers) {
+    await notifications.cancelWaterReminder(identifier);
+  }
+}
+
+async function scheduleWaterReminders(
+  notifications: WaterNotificationAdapter,
+  times: readonly WaterReminderTime[],
+): Promise<void> {
+  for (const time of times) {
+    await notifications.scheduleWaterReminder(time);
+  }
+}
+
 const AppStateContext = createContext<AppStateContextValue | null>(null);
 
 export function AppStateProvider({
   children,
   storage = defaultStorage,
   now = defaultNow,
+  notifications = defaultWaterNotificationAdapter,
 }: AppStateProviderProps) {
   const [state, setState] = useState<AppState | null>(null);
   const [status, setStatus] = useState<AppLoadStatus>('loading');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [waterPermissionStatus, setWaterPermissionStatus] =
+    useState<WaterPermissionStatus | null>(null);
   const [currentTime, setCurrentTime] = useState(() => now());
   const stateRef = useRef<AppState | null>(null);
   const strengthMutationQueueRef = useRef(Promise.resolve());
   const heatMutationQueueRef = useRef(Promise.resolve());
   const fastingMutationQueueRef = useRef(Promise.resolve());
+  const waterMutationQueueRef = useRef(Promise.resolve());
 
   const load = useCallback(
     async (isInitialLoad: boolean) => {
@@ -164,10 +202,62 @@ export function AppStateProvider({
         const currentDate = now();
         setCurrentTime(currentDate);
         const loadedState = await loadAppState(storage, currentDate);
-        stateRef.current = loadedState;
-        setState(loadedState);
+        let stateToUse = loadedState;
+        let permission: WaterPermissionStatus | null = null;
+        let waterStatePersistenceFailed = false;
+        const previousWaterTimes = loadedState.settings.water.enabled
+          ? getWaterReminderTimes(loadedState.settings.water)
+          : [];
+
+        try {
+          permission = await notifications.getPermissionStatus();
+          setWaterPermissionStatus(permission);
+        } catch {
+          // Notification availability must not prevent local data from loading.
+        }
+
+        if (
+          permission !== null &&
+          loadedState.settings.water.enabled &&
+          permission !== 'granted'
+        ) {
+          stateToUse = {
+            ...loadedState,
+            settings: {
+              ...loadedState.settings,
+              water: {
+                ...loadedState.settings.water,
+                enabled: false,
+              },
+            },
+          };
+          try {
+            await cancelWaterReminders(notifications);
+          } catch {
+            // The permission state still prevents the UI from reporting active reminders.
+          }
+          try {
+            await saveAppState(storage, stateToUse);
+          } catch {
+            stateToUse = loadedState;
+            waterStatePersistenceFailed = true;
+            try {
+              await cancelWaterReminders(notifications);
+              await scheduleWaterReminders(notifications, previousWaterTimes);
+            } catch {
+              // Keep the loaded state and surface the persistence failure to the user.
+            }
+          }
+        }
+
+        stateRef.current = stateToUse;
+        setState(stateToUse);
         setStatus('ready');
-        setErrorMessage(null);
+        setErrorMessage(
+          waterStatePersistenceFailed
+            ? 'No se pudo guardar el cambio. Tus datos anteriores siguen intactos.'
+            : null,
+        );
       } catch {
         setErrorMessage(
           isInitialLoad
@@ -179,7 +269,7 @@ export function AppStateProvider({
         }
       }
     },
-    [now, storage],
+    [notifications, now, storage],
   );
 
   const persistState = useCallback(
@@ -393,6 +483,70 @@ export function AppStateProvider({
       await persistState(nextState);
     },
     [now, persistState],
+  );
+
+  const updateWaterSettings = useCallback(
+    (settings: WaterSettings) => {
+      const operation = waterMutationQueueRef.current.then(async () => {
+        const currentState = stateRef.current;
+        if (!currentState) {
+          throw new Error('Los datos todavía se están cargando.');
+        }
+
+        validateWaterSettings(settings);
+        const previousWaterSettings = currentState.settings.water;
+        const previousTimes = previousWaterSettings.enabled
+          ? getWaterReminderTimes(previousWaterSettings)
+          : [];
+
+        if (settings.enabled) {
+          await notifications.createChannel();
+          const permission = await notifications.getPermissionStatus();
+          setWaterPermissionStatus(permission);
+          const finalPermission =
+            permission === 'undetermined'
+              ? await notifications.requestPermission()
+              : permission;
+          setWaterPermissionStatus(finalPermission);
+
+          if (finalPermission !== 'granted') {
+            throw new Error(WATER_PERMISSION_ERROR);
+          }
+        }
+
+        try {
+          await cancelWaterReminders(notifications);
+          if (settings.enabled) {
+            await scheduleWaterReminders(
+              notifications,
+              getWaterReminderTimes(settings),
+            );
+          }
+
+          await persistState({
+            ...currentState,
+            settings: {
+              ...currentState.settings,
+              water: { ...settings },
+            },
+          });
+        } catch (error) {
+          try {
+            await cancelWaterReminders(notifications);
+            if (previousWaterSettings.enabled) {
+              await scheduleWaterReminders(notifications, previousTimes);
+            }
+          } catch {
+            // Preserve the original operation error while making a best-effort rollback.
+          }
+
+          throw error;
+        }
+      });
+      waterMutationQueueRef.current = operation.catch(() => undefined);
+      return operation;
+    },
+    [notifications, persistState],
   );
 
   const createMuscleGroup = useCallback(
@@ -717,6 +871,7 @@ export function AppStateProvider({
         ? state?.weeklyRecords[currentWeekStart] ?? null
         : null,
       currentTime,
+      waterPermissionStatus,
       updateDailySteps,
       updateDailyStepGoal,
       startFasting,
@@ -726,6 +881,7 @@ export function AppStateProvider({
       undoHeatSession,
       updateHeatWeeklyGoal,
       updateStrengthConfiguration,
+      updateWaterSettings,
       createMuscleGroup,
       updateMuscleGroup,
       deleteMuscleGroup,
@@ -758,7 +914,9 @@ export function AppStateProvider({
       updateExercise,
       updateHeatWeeklyGoal,
       updateStrengthConfiguration,
+      updateWaterSettings,
       updateMuscleGroup,
+      waterPermissionStatus,
     ],
   );
 
