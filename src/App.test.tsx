@@ -1239,6 +1239,7 @@ describe('Gym Tracker app flow', () => {
       ).toBeTruthy(),
     );
     expect(screen.getByText('Inactivos')).toBeTruthy();
+    expect(notifications.scheduled.size).toBe(0);
     await firstRender.unmount();
 
     notifications.permission = 'denied';

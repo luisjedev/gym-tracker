@@ -172,6 +172,21 @@ async function scheduleWaterReminders(
   }
 }
 
+async function restoreWaterReminderSchedule(
+  notifications: WaterNotificationAdapter,
+  previousWaterSettings: WaterSettings,
+  previousTimes: readonly WaterReminderTime[],
+): Promise<void> {
+  try {
+    await cancelWaterReminders(notifications);
+    if (previousWaterSettings.enabled) {
+      await scheduleWaterReminders(notifications, previousTimes);
+    }
+  } catch {
+    // A rollback is best effort; the original operation error remains authoritative.
+  }
+}
+
 const AppStateContext = createContext<AppStateContextValue | null>(null);
 
 export function AppStateProvider({
@@ -510,6 +525,27 @@ export function AppStateProvider({
           setWaterPermissionStatus(finalPermission);
 
           if (finalPermission !== 'granted') {
+            try {
+              await cancelWaterReminders(notifications);
+              await persistState({
+                ...currentState,
+                settings: {
+                  ...currentState.settings,
+                  water: {
+                    ...settings,
+                    enabled: false,
+                  },
+                },
+              });
+            } catch (error) {
+              await restoreWaterReminderSchedule(
+                notifications,
+                previousWaterSettings,
+                previousTimes,
+              );
+              throw error;
+            }
+
             throw new Error(WATER_PERMISSION_ERROR);
           }
         }
@@ -531,15 +567,11 @@ export function AppStateProvider({
             },
           });
         } catch (error) {
-          try {
-            await cancelWaterReminders(notifications);
-            if (previousWaterSettings.enabled) {
-              await scheduleWaterReminders(notifications, previousTimes);
-            }
-          } catch {
-            // Preserve the original operation error while making a best-effort rollback.
-          }
-
+          await restoreWaterReminderSchedule(
+            notifications,
+            previousWaterSettings,
+            previousTimes,
+          );
           throw error;
         }
       });

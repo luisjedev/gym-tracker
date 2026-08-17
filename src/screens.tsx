@@ -1319,7 +1319,6 @@ export function SettingsScreen() {
     setWaterStartTime(configuredWaterSettings.startTime);
     setWaterEndTime(configuredWaterSettings.endTime);
     setWaterInterval(String(configuredWaterSettings.intervalHours));
-    setWaterValidationError(null);
   }, [
     configuredWaterSettings.endTime,
     configuredWaterSettings.intervalHours,
