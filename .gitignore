@@ -8,10 +8,12 @@ web-build/
 expo-env.d.ts
 
 # Native build artifacts
+/android/
+/ios/
+.kotlin/
 *.apk
 *.aab
-android/
-ios/
+*.orig.*
 
 # Environment and secrets
 .env
@@ -19,9 +21,11 @@ ios/
 !.env.example
 *.pem
 *.key
+*.p8
 *.p12
 *.jks
 *.keystore
+*.mobileprovision
 credentials.json
 
 # Logs
@@ -29,6 +33,7 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+.metro-health-check*
 
 # Tests
 coverage/
@@ -41,3 +46,4 @@ coverage/
 # Temporary files
 *.tmp
 *.swp
+*.tsbuildinfo

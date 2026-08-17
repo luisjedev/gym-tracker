@@ -1,0 +1,33 @@
+{
+  "name": "gym-tracker",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "dependencies": {
+    "expo": "~57.0.14",
+    "expo-dev-client": "~57.0.13",
+    "expo-status-bar": "~57.0.1",
+    "react": "19.2.3",
+    "react-native": "0.86.2"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.2",
+    "eslint": "^9.39.5",
+    "eslint-config-expo": "~57.0.1",
+    "typescript": "~6.0.3"
+  },
+  "scripts": {
+    "start": "expo start --dev-client",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web",
+    "start:go": "expo start --go",
+    "typecheck": "tsc --noEmit",
+    "lint": "expo lint",
+    "check": "npm run typecheck && npm run lint"
+  },
+  "private": true,
+  "description": "Tracker personal de constancia física para Android",
+  "engines": {
+    "node": "^20.19.4 || ^22.13.0 || ^24.3.0 || >=25.0.0"
+  }
+}
