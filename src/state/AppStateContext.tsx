@@ -159,9 +159,18 @@ async function cancelWaterReminders(
   notifications: WaterNotificationAdapter,
 ): Promise<void> {
   const identifiers = await notifications.getScheduledWaterReminderIds();
+  let firstError: unknown = null;
 
   for (const identifier of identifiers) {
-    await notifications.cancelWaterReminder(identifier);
+    try {
+      await notifications.cancelWaterReminder(identifier);
+    } catch (error) {
+      firstError ??= error;
+    }
+  }
+
+  if (firstError) {
+    throw firstError;
   }
 }
 

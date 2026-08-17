@@ -38,6 +38,8 @@ class ControlledWaterNotifications implements WaterNotificationAdapter {
   readonly foreignIds = new Set(['foreign-reminder']);
   foreignCancellationAttempts = 0;
   failCancellations = false;
+  failCancellationId: string | null = null;
+  readonly cancellationAttempts: string[] = [];
   private nextId = 1;
 
   async getPermissionStatus() {
@@ -68,7 +70,8 @@ class ControlledWaterNotifications implements WaterNotificationAdapter {
   }
 
   async cancelWaterReminder(id: string) {
-    if (this.failCancellations) {
+    this.cancellationAttempts.push(id);
+    if (this.failCancellations || id === this.failCancellationId) {
       throw new Error('cancel failed');
     }
 
@@ -1319,6 +1322,42 @@ describe('Gym Tracker app flow', () => {
       />,
     );
     await waitFor(() => expect(screen.getByText('Activos')).toBeTruthy());
+  });
+
+  it('reports a recoverable error when reprogramming cannot cancel every previous reminder', async () => {
+    const notifications = new ControlledWaterNotifications();
+    notifications.permission = 'granted';
+
+    await render(
+      <App
+        notifications={notifications}
+        now={() => new Date(2026, 7, 17, 12)}
+        storage={new MemoryStorage()}
+      />,
+    );
+    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
+    await fireEvent.press(screen.getByRole('button', { name: /Ajustes/ }));
+    await fireEvent(
+      screen.getByTestId('water-enabled-switch'),
+      'valueChange',
+      true,
+    );
+    await waitFor(() => expect(notifications.scheduled.size).toBe(8));
+    const firstScheduleIds = [...notifications.scheduled.keys()];
+    notifications.failCancellationId = firstScheduleIds[1];
+
+    await fireEvent.changeText(screen.getByTestId('water-interval-input'), '3');
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Guardar recordatorios de agua' }),
+    );
+
+    await waitFor(() => expect(screen.getByText('cancel failed')).toBeTruthy());
+    expect(notifications.cancellationAttempts).toEqual(
+      expect.arrayContaining(firstScheduleIds),
+    );
+    expect(notifications.foreignCancellationAttempts).toBe(0);
+
+    notifications.failCancellationId = null;
   });
 
   it('keeps the loaded state and reports a recoverable error when revocation cannot be persisted', async () => {
