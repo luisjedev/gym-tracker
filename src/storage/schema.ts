@@ -1,7 +1,8 @@
 import type { StorageAdapter } from './appStorage';
 import { APP_STORAGE_KEY } from './appStorage';
 
-export const STORAGE_SCHEMA_VERSION = 1;
+export const STORAGE_SCHEMA_VERSION = 2;
+const LEGACY_STORAGE_SCHEMA_VERSION = 1;
 export const DEFAULT_DAILY_STEP_GOAL = 7_000;
 export const DEFAULT_HIIT_WEEKLY_GOAL = 1;
 export const DEFAULT_WATER_SETTINGS = {
@@ -638,7 +639,53 @@ function isValidState(value: unknown): value is AppState {
   );
 }
 
-export function parsePersistedState(rawValue: string): PersistedAppState {
+function migrateLegacyState(value: unknown): unknown {
+  if (!isRecord(value) || !isRecord(value.settings) || !isRecord(value.weeklyRecords)) {
+    return value;
+  }
+
+  const settings = value.settings;
+  const weeklyRecords = Object.fromEntries(
+    Object.entries(value.weeklyRecords).map(([weekStart, week]) => {
+      if (!isRecord(week)) {
+        return [weekStart, week];
+      }
+
+      return [
+        weekStart,
+        {
+          weekStart: week.weekStart,
+          strengthGoal: week.strengthGoal,
+          strengthSessions: week.strengthSessions,
+          hiitGoal: week.hiitGoal ?? week.heatGoal,
+          hiitCompleted: week.hiitCompleted ?? week.heatCompleted,
+        },
+      ];
+    }),
+  );
+
+  return {
+    settings: {
+      dailyStepGoal: settings.dailyStepGoal,
+      strengthSessions: settings.strengthSessions,
+      hiitWeeklyGoal: settings.hiitWeeklyGoal ?? settings.heatWeeklyGoal,
+      water: settings.water,
+    },
+    muscleGroups: value.muscleGroups,
+    exercises: value.exercises,
+    dailyRecords: value.dailyRecords,
+    weeklyRecords,
+    fasting: value.fasting,
+  };
+}
+
+interface ParsedPersistedState extends PersistedAppState {
+  needsPersistence: boolean;
+}
+
+function parsePersistedStateWithMigration(
+  rawValue: string,
+): ParsedPersistedState {
   let parsed: unknown;
 
   try {
@@ -647,16 +694,33 @@ export function parsePersistedState(rawValue: string): PersistedAppState {
     throw new Error('El almacenamiento contiene datos que no se pueden leer.');
   }
 
-  if (
-    !isRecord(parsed) ||
-    parsed.schemaVersion !== STORAGE_SCHEMA_VERSION ||
-    !isValidState(parsed.state)
-  ) {
+  if (!isRecord(parsed)) {
+    throw new Error('La versión de los datos guardados no es compatible.');
+  }
+
+  const needsPersistence = parsed.schemaVersion === LEGACY_STORAGE_SCHEMA_VERSION;
+  const state = needsPersistence
+    ? migrateLegacyState(parsed.state)
+    : parsed.schemaVersion === STORAGE_SCHEMA_VERSION
+      ? parsed.state
+      : null;
+
+  if (!isValidState(state)) {
     throw new Error('La versión de los datos guardados no es compatible.');
   }
 
   return {
     schemaVersion: STORAGE_SCHEMA_VERSION,
+    state,
+    needsPersistence,
+  };
+}
+
+export function parsePersistedState(rawValue: string): PersistedAppState {
+  const parsed = parsePersistedStateWithMigration(rawValue);
+
+  return {
+    schemaVersion: parsed.schemaVersion,
     state: parsed.state,
   };
 }
@@ -684,12 +748,12 @@ export async function loadAppState(
     return initialState;
   }
 
-  const persisted = parsePersistedState(rawValue);
+  const persisted = parsePersistedStateWithMigration(rawValue);
   const migratedState = migrateToFixedMuscleGroupCatalog(persisted.state);
   const normalizedState = normalizeExerciseCovers(migratedState);
   const state = ensureCurrentPeriods(normalizedState, now);
 
-  if (state !== persisted.state) {
+  if (persisted.needsPersistence || state !== persisted.state) {
     await saveAppState(storage, state);
   }
 

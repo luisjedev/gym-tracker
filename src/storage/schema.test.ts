@@ -37,7 +37,7 @@ async function createPersistedFixture(now: Date) {
 }
 
 describe('versioned local app state', () => {
-  it('creates the documented defaults and persists schema version one', async () => {
+  it('creates the documented defaults and persists the current schema version', async () => {
     const now = new Date(2026, 7, 17, 12, 0, 0);
     const storage = new MemoryStorage();
 
@@ -69,6 +69,35 @@ describe('versioned local app state', () => {
 
     await expect(loadAppState(storage, now)).rejects.toThrow(
       'La versión de los datos guardados no es compatible.',
+    );
+  });
+
+  it('migrates schema version one HEAT data to the current HIIT shape', async () => {
+    const now = new Date(2026, 7, 17, 12, 0, 0);
+    const storage = new MemoryStorage();
+    const legacyState = JSON.parse(JSON.stringify(createDefaultState(now)));
+    const weekStart = getMondayDateKey(now);
+
+    legacyState.settings.hiitWeeklyGoal = 3;
+    legacyState.settings.heatWeeklyGoal = legacyState.settings.hiitWeeklyGoal;
+    delete legacyState.settings.hiitWeeklyGoal;
+    legacyState.weeklyRecords[weekStart].hiitGoal = 3;
+    legacyState.weeklyRecords[weekStart].hiitCompleted = 2;
+    legacyState.weeklyRecords[weekStart].heatGoal =
+      legacyState.weeklyRecords[weekStart].hiitGoal;
+    legacyState.weeklyRecords[weekStart].heatCompleted =
+      legacyState.weeklyRecords[weekStart].hiitCompleted;
+    delete legacyState.weeklyRecords[weekStart].hiitGoal;
+    delete legacyState.weeklyRecords[weekStart].hiitCompleted;
+    storage.value = JSON.stringify({ schemaVersion: 1, state: legacyState });
+
+    const migrated = await loadAppState(storage, now);
+
+    expect(migrated.settings.hiitWeeklyGoal).toBe(3);
+    expect(migrated.weeklyRecords[weekStart].hiitGoal).toBe(3);
+    expect(migrated.weeklyRecords[weekStart].hiitCompleted).toBe(2);
+    expect(JSON.parse(storage.value ?? '{}').schemaVersion).toBe(
+      STORAGE_SCHEMA_VERSION,
     );
   });
 
