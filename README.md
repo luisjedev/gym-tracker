@@ -84,10 +84,16 @@ npm start -- --tunnel
 El perfil `preview` produce un APK que arranca sin Metro y sirve para pruebas instalables:
 
 ```bash
-npx eas-cli@latest build --platform android --profile preview
+npx eas-cli@latest build --platform android --profile preview --wait
 ```
 
-La build final de uso personal se validará al completar el MVP.
+Después abre en el teléfono el enlace `artifacts.buildUrl` que muestra EAS, instala el
+APK y comprueba que **Gym Tracker** abre sin `npm start`. Para actualizaciones, incrementa
+`expo.android.versionCode` en `app.json` antes de generar la siguiente build.
+
+La [guía de build y smoke test Android](docs/android-release-checklist.md) contiene el
+preflight, la instalación y la lista mínima de comprobaciones físicas. No requiere
+Android Studio, emuladores ni publicación en Google Play.
 
 ## Comandos útiles
 

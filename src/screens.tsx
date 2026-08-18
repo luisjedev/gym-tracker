@@ -968,8 +968,12 @@ export function ExercisesScreen() {
     setMediaSuccessMessage(null);
 
     try {
-      await addExerciseMedia(selectedExercise.id);
-      setMediaSuccessMessage('Multimedia guardada');
+      const mediaWasAdded = await addExerciseMedia(selectedExercise.id);
+      setMediaSuccessMessage(
+        mediaWasAdded
+          ? 'Multimedia guardada'
+          : 'No se seleccionó ninguna imagen ni vídeo.',
+      );
     } catch (error) {
       setMediaActionError(
         error instanceof Error ? error.message : 'No se pudo guardar la multimedia.',

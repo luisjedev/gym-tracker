@@ -73,7 +73,7 @@ export interface AppStateContextValue {
   createExercise(input: NewExerciseInput): Promise<void>;
   updateExercise(id: string, input: NewExerciseInput): Promise<void>;
   deleteExercise(id: string): Promise<void>;
-  addExerciseMedia(id: string): Promise<void>;
+  addExerciseMedia(id: string): Promise<boolean>;
   removeExerciseMedia(id: string, mediaId: string): Promise<void>;
   retry(): void;
 }
@@ -857,6 +857,7 @@ export function AppStateProvider({
 
   const addExerciseMedia = useCallback(
     (id: string) => {
+      let mediaWasAdded = false;
       const operation = exerciseMutationQueueRef.current.then(async () => {
         const currentState = stateRef.current;
         if (!currentState) {
@@ -922,6 +923,7 @@ export function AppStateProvider({
                 : item,
             ),
           });
+          mediaWasAdded = true;
         } catch (error) {
           await Promise.all(
             copiedMedia.map(async ({ uri }) => {
@@ -936,7 +938,7 @@ export function AppStateProvider({
         }
       });
       exerciseMutationQueueRef.current = operation.catch(() => undefined);
-      return operation;
+      return operation.then(() => mediaWasAdded);
     },
     [media, now, persistState],
   );

@@ -314,6 +314,31 @@ function isValidActiveFasting(value: unknown): value is ActiveFasting {
   return isRecord(value) && isValidTimestamp(value.startedAt);
 }
 
+function isValidMuscleGroup(value: unknown): value is MuscleGroup {
+  return (
+    isRecord(value) &&
+    typeof value.id === 'string' &&
+    value.id.length > 0 &&
+    typeof value.name === 'string' &&
+    value.name.length > 0
+  );
+}
+
+function isValidStrengthSession(value: unknown): value is StrengthSession {
+  return (
+    isRecord(value) &&
+    typeof value.id === 'string' &&
+    value.id.length > 0 &&
+    typeof value.name === 'string' &&
+    value.name.length > 0 &&
+    Array.isArray(value.muscleGroupIds) &&
+    value.muscleGroupIds.every(
+      (groupId) => typeof groupId === 'string' && groupId.length > 0,
+    ) &&
+    typeof value.completed === 'boolean'
+  );
+}
+
 function isValidCompletedFasting(value: unknown): value is CompletedFasting {
   if (
     !isRecord(value) ||
@@ -381,6 +406,7 @@ function isValidWeeklyRecord(value: unknown): value is WeeklyRecord {
     typeof value.weekStart !== 'string' ||
     !isNonNegativeSafeInteger(value.strengthGoal) ||
     !Array.isArray(value.strengthSessions) ||
+    !value.strengthSessions.every(isValidStrengthSession) ||
     !isNonNegativeSafeInteger(value.heatGoal) ||
     !isNonNegativeSafeInteger(value.heatCompleted)
   ) {
@@ -402,11 +428,15 @@ function isValidState(value: unknown): value is AppState {
     isRecord(settings) &&
     isNonNegativeSafeInteger(settings.dailyStepGoal) &&
     Array.isArray(settings.strengthSessions) &&
+    settings.strengthSessions.length >= 1 &&
+    settings.strengthSessions.length <= 7 &&
+    settings.strengthSessions.every(isValidStrengthSession) &&
     typeof settings.heatWeeklyGoal === 'number' &&
     Number.isInteger(settings.heatWeeklyGoal) &&
     settings.heatWeeklyGoal >= 0 &&
     isValidWaterSettings(settings.water) &&
     Array.isArray(value.muscleGroups) &&
+    value.muscleGroups.every(isValidMuscleGroup) &&
     Array.isArray(value.exercises) &&
     value.exercises.every(isValidExercise) &&
     isRecord(value.dailyRecords) &&

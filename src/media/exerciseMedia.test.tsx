@@ -152,6 +152,43 @@ describe('exercise multimedia', () => {
     expect(screen.getByRole('button', { name: 'Reproducir vídeo 2' })).toBeTruthy();
   });
 
+  it('explains a cancelled system selection without reporting saved media', async () => {
+    const storage = new MemoryStorage();
+    const media = new ControlledExerciseMedia();
+    media.selection = [];
+
+    await render(
+      <App
+        media={media}
+        now={() => new Date(2026, 7, 17, 12)}
+        storage={storage}
+      />,
+    );
+    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
+    await fireEvent.press(screen.getByRole('button', { name: /Ejercicios/ }));
+    await settleNavigation();
+    await waitFor(() => expect(screen.getByText('Biblioteca de ejercicios')).toBeTruthy());
+    await fireEvent.press(screen.getByRole('button', { name: 'Crear ejercicio' }));
+    await fireEvent.changeText(screen.getByTestId('exercise-name-input'), 'Sentadilla');
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Seleccionar grupo Piernas' }),
+    );
+    await fireEvent.press(screen.getByRole('button', { name: 'Guardar ejercicio' }));
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Abrir detalle de Sentadilla' }),
+    );
+
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Añadir imágenes y vídeos' }),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByText('No se seleccionó ninguna imagen ni vídeo.')).toBeTruthy(),
+    );
+    expect(screen.queryByText('Multimedia guardada')).toBeNull();
+    expect(media.copies).toHaveLength(0);
+  });
+
   it('cleans newly copied files when local persistence fails', async () => {
     const storage = new MemoryStorage();
     const media = new ControlledExerciseMedia();
