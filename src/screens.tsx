@@ -338,30 +338,27 @@ function getFastingDayHours(durationMinutes: number | null): number {
     : Math.max(0, Math.floor(durationMinutes / 60));
 }
 
-function getFastingDayStatusLabel(status: WeeklyFastingDay['status']): string {
-  switch (status) {
-    case 'success':
-      return 'más de 15 horas';
-    case 'danger':
-      return '15 horas o menos o sin ayuno válido';
-    case 'active':
-      return 'ayuno activo';
-    default:
-      return 'sin ayuno iniciado';
-  }
-}
+function getFastingDayPresentation(status: WeeklyFastingDay['status']) {
+  const presentations = {
+    neutral: {
+      circleStyle: styles.fastingDayCircleNeutral,
+      statusLabel: 'sin ayuno iniciado',
+    },
+    success: {
+      circleStyle: styles.fastingDayCircleSuccess,
+      statusLabel: 'más de 15 horas',
+    },
+    danger: {
+      circleStyle: styles.fastingDayCircleDanger,
+      statusLabel: '15 horas o menos o sin ayuno válido',
+    },
+    active: {
+      circleStyle: styles.fastingDayCircleActive,
+      statusLabel: 'ayuno activo',
+    },
+  };
 
-function getFastingDayCircleStyle(status: WeeklyFastingDay['status']) {
-  switch (status) {
-    case 'success':
-      return styles.fastingDayCircleSuccess;
-    case 'danger':
-      return styles.fastingDayCircleDanger;
-    case 'active':
-      return styles.fastingDayCircleActive;
-    default:
-      return styles.fastingDayCircleNeutral;
-  }
+  return presentations[status];
 }
 
 function FastingWeekSummary({ days }: { days: readonly WeeklyFastingDay[] }) {
@@ -372,6 +369,7 @@ function FastingWeekSummary({ days }: { days: readonly WeeklyFastingDay[] }) {
         {days.map((day, index) => {
           const weekday = FASTING_WEEKDAY_LABELS[index];
           const hours = getFastingDayHours(day.durationMinutes);
+          const presentation = getFastingDayPresentation(day.status);
 
           return (
             <View
@@ -382,10 +380,8 @@ function FastingWeekSummary({ days }: { days: readonly WeeklyFastingDay[] }) {
               <Text style={styles.fastingDayLabel}>{weekday.short}</Text>
               <View
                 accessible
-                accessibilityLabel={`${weekday.full}: ${hours} horas, ${getFastingDayStatusLabel(
-                  day.status,
-                )}`}
-                style={[styles.fastingDayCircle, getFastingDayCircleStyle(day.status)]}
+                accessibilityLabel={`${weekday.full}: ${hours} horas, ${presentation.statusLabel}`}
+                style={[styles.fastingDayCircle, presentation.circleStyle]}
                 testID={`home-fasting-day-${day.date}-circle`}
               >
                 <Text style={styles.fastingDayHours}>{formatNumber(hours)}</Text>
@@ -637,23 +633,6 @@ export function HomeScreen() {
             <Text style={styles.supportText}>
               Duración: {formatFastingDuration(activeFastingDuration)}
             </Text>
-            {fastingGuidanceStart ? (
-              <FastingEatingGuidance
-                currentTime={currentTime}
-                startedAt={fastingGuidanceStart}
-              />
-            ) : null}
-            <Text style={styles.supportText}>
-              Duración media: {averageFastingDurationLabel}
-            </Text>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Finalizar ayuno"
-              onPress={() => void handleFinishFasting()}
-              style={({ pressed }) => [styles.dangerButton, pressed && styles.pressed]}
-            >
-              <Text style={styles.dangerButtonText}>Finalizar ayuno</Text>
-            </Pressable>
           </>
         ) : (
           <>
@@ -664,24 +643,35 @@ export function HomeScreen() {
                 ? formatFastingDuration(lastCompletedFasting.durationMinutes)
                 : 'Sin ayunos finalizados'}
             </Text>
-            {fastingGuidanceStart ? (
-              <FastingEatingGuidance
-                currentTime={currentTime}
-                startedAt={fastingGuidanceStart}
-              />
-            ) : null}
-            <Text style={styles.supportText}>
-              Duración media: {averageFastingDurationLabel}
-            </Text>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Iniciar ayuno"
-              onPress={() => void handleStartFasting()}
-              style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
-            >
-              <Text style={styles.primaryButtonText}>Iniciar ayuno</Text>
-            </Pressable>
           </>
+        )}
+        {fastingGuidanceStart ? (
+          <FastingEatingGuidance
+            currentTime={currentTime}
+            startedAt={fastingGuidanceStart}
+          />
+        ) : null}
+        <Text style={styles.supportText}>
+          Duración media: {averageFastingDurationLabel}
+        </Text>
+        {activeFasting && activeFastingDuration !== null ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Finalizar ayuno"
+            onPress={() => void handleFinishFasting()}
+            style={({ pressed }) => [styles.dangerButton, pressed && styles.pressed]}
+          >
+            <Text style={styles.dangerButtonText}>Finalizar ayuno</Text>
+          </Pressable>
+        ) : (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Iniciar ayuno"
+            onPress={() => void handleStartFasting()}
+            style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
+          >
+            <Text style={styles.primaryButtonText}>Iniciar ayuno</Text>
+          </Pressable>
         )}
       </Card>
 

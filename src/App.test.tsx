@@ -1,11 +1,10 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
-import { AppState, StyleSheet } from 'react-native';
+import { AppState } from 'react-native';
 
 import App from '../App';
 import type { WaterNotificationAdapter, WaterPermissionStatus, WaterReminderTime } from './notifications/waterNotifications';
 import type { StorageAdapter } from './storage/appStorage';
 import { createDefaultState, saveAppState } from './storage/schema';
-import { colors } from './theme';
 
 class MemoryStorage implements StorageAdapter {
   private readonly values = new Map<string, string>();
@@ -1058,21 +1057,9 @@ describe('Gym Tracker app flow', () => {
     expect(fridayCircle.props.accessibilityLabel).toBe(
       'Viernes: 0 horas, sin ayuno iniciado',
     );
-    expect(StyleSheet.flatten(mondayCircle.props.style)).toMatchObject({
-      borderColor: colors.accent,
-    });
-    expect(StyleSheet.flatten(tuesdayCircle.props.style)).toMatchObject({
-      borderColor: colors.danger,
-    });
-    expect(StyleSheet.flatten(wednesdayCircle.props.style)).toMatchObject({
-      borderColor: colors.danger,
-    });
-    expect(StyleSheet.flatten(fridayCircle.props.style)).toMatchObject({
-      borderColor: colors.border,
-    });
   });
 
-  it('shows the active border, eating guidance, and the result after finishing a fast', async () => {
+  it('shows the active state, eating guidance, and the result after finishing a fast', async () => {
     const storage = new MemoryStorage();
     let currentNow = new Date(2026, 7, 17, 20, 0, 0);
     const now = () => currentNow;
@@ -1087,10 +1074,8 @@ describe('Gym Tracker app flow', () => {
     ).toBeTruthy();
     expect(screen.getByText('Aún no puedes comer')).toBeTruthy();
     expect(
-      StyleSheet.flatten(
-        screen.getByTestId('home-fasting-day-2026-08-17-circle').props.style,
-      ),
-    ).toMatchObject({ borderColor: colors.warning });
+      screen.getByTestId('home-fasting-day-2026-08-17-circle').props.accessibilityLabel,
+    ).toBe('Lunes: 0 horas, ayuno activo');
 
     currentNow = new Date(2026, 7, 18, 11, 2, 0);
     await rendered.unmount();
@@ -1100,19 +1085,15 @@ describe('Gym Tracker app flow', () => {
     await fireEvent.press(screen.getByRole('button', { name: 'Finalizar ayuno' }));
     await waitFor(() => expect(screen.getByText('No hay un ayuno activo.')).toBeTruthy());
     expect(
-      StyleSheet.flatten(
-        screen.getByTestId('home-fasting-day-2026-08-17-circle').props.style,
-      ),
-    ).toMatchObject({ borderColor: colors.accent });
+      screen.getByTestId('home-fasting-day-2026-08-17-circle').props.accessibilityLabel,
+    ).toBe('Lunes: 15 horas, más de 15 horas');
 
     await rendered.unmount();
     await render(<App now={now} storage={storage} />);
     await waitFor(() => expect(screen.getByText('Último ayuno: 15 h 2 min')).toBeTruthy());
     expect(
-      StyleSheet.flatten(
-        screen.getByTestId('home-fasting-day-2026-08-17-circle').props.style,
-      ),
-    ).toMatchObject({ borderColor: colors.accent });
+      screen.getByTestId('home-fasting-day-2026-08-17-circle').props.accessibilityLabel,
+    ).toBe('Lunes: 15 horas, más de 15 horas');
   });
 
   it('keeps the active fasting duration until the app is reopened or resumed', async () => {

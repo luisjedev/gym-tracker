@@ -80,13 +80,21 @@ function isValidCompletedFasting(fasting: CompletedFasting): boolean {
   const startedTimestamp = Date.parse(fasting.startedAt);
   const endedTimestamp = Date.parse(fasting.endedAt);
 
-  return (
-    Number.isFinite(startedTimestamp) &&
-    Number.isFinite(endedTimestamp) &&
-    endedTimestamp >= startedTimestamp &&
-    Number.isFinite(fasting.durationMinutes) &&
-    fasting.durationMinutes >= 0
+  if (
+    !Number.isFinite(startedTimestamp) ||
+    !Number.isFinite(endedTimestamp) ||
+    endedTimestamp < startedTimestamp ||
+    !Number.isFinite(fasting.durationMinutes) ||
+    fasting.durationMinutes < 0
+  ) {
+    return false;
+  }
+
+  const calculatedDurationMinutes = Math.floor(
+    (endedTimestamp - startedTimestamp) / MILLISECONDS_IN_MINUTE,
   );
+
+  return fasting.durationMinutes === calculatedDurationMinutes;
 }
 
 export function getWeeklyFastingSummary(

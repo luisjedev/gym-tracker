@@ -74,6 +74,28 @@ describe('fasting calculations', () => {
     ]);
   });
 
+  it('does not treat an inconsistent completed record as a valid fast', () => {
+    const now = new Date(2026, 7, 19, 12, 0, 0);
+    const summary = getWeeklyFastingSummary(
+      [
+        {
+          id: 'inconsistent',
+          startedAt: new Date(2026, 7, 17, 20, 0, 0).toISOString(),
+          endedAt: new Date(2026, 7, 17, 21, 0, 0).toISOString(),
+          durationMinutes: 16 * 60,
+        },
+      ],
+      null,
+      now,
+    );
+
+    expect(summary[0]).toEqual({
+      date: '2026-08-17',
+      status: 'danger',
+      durationMinutes: null,
+    });
+  });
+
   it('marks an active fast in yellow and calculates its elapsed hours on demand', () => {
     const now = new Date(2026, 7, 21, 12, 30, 0);
     const summary = getWeeklyFastingSummary(
