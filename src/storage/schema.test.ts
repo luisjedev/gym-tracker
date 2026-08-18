@@ -1,6 +1,6 @@
 import {
   DEFAULT_DAILY_STEP_GOAL,
-  DEFAULT_HEAT_WEEKLY_GOAL,
+  DEFAULT_HIIT_WEEKLY_GOAL,
   DEFAULT_MUSCLE_GROUPS,
   DEFAULT_STRENGTH_SESSIONS,
   DEFAULT_WATER_SETTINGS,
@@ -47,7 +47,7 @@ describe('versioned local app state', () => {
     expect(payload.schemaVersion).toBe(STORAGE_SCHEMA_VERSION);
     expect(state.settings.dailyStepGoal).toBe(DEFAULT_DAILY_STEP_GOAL);
     expect(state.settings.strengthSessions).toEqual(DEFAULT_STRENGTH_SESSIONS);
-    expect(state.settings.heatWeeklyGoal).toBe(DEFAULT_HEAT_WEEKLY_GOAL);
+    expect(state.settings.hiitWeeklyGoal).toBe(DEFAULT_HIIT_WEEKLY_GOAL);
     expect(state.settings.water).toEqual(DEFAULT_WATER_SETTINGS);
     expect(state.muscleGroups).toEqual(DEFAULT_MUSCLE_GROUPS);
     expect(state.dailyRecords[formatDateKey(now)]).toEqual({
@@ -86,14 +86,14 @@ describe('versioned local app state', () => {
     expect(storage.writes).toBe(writesBeforeHydration);
   });
 
-  it('rejects a weekly HEAT snapshot that exceeds its saved goal', async () => {
+  it('rejects a weekly HIIT snapshot that exceeds its saved goal', async () => {
     const now = new Date(2026, 7, 17, 12, 0, 0);
     const storage = new MemoryStorage();
     await saveAppState(storage, createDefaultState(now));
 
     const payload = JSON.parse(storage.value ?? '{}');
     const weekStart = getMondayDateKey(now);
-    payload.state.weeklyRecords[weekStart].heatCompleted = 2;
+    payload.state.weeklyRecords[weekStart].hiitCompleted = 2;
     storage.value = JSON.stringify(payload);
 
     await expect(loadAppState(storage, now)).rejects.toThrow(

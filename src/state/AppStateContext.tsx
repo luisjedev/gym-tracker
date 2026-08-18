@@ -62,9 +62,9 @@ export interface AppStateContextValue {
   startFasting(): Promise<void>;
   finishFasting(): Promise<void>;
   setStrengthSessionCompleted(id: string, completed: boolean): Promise<void>;
-  markHeatSessionCompleted(): Promise<void>;
-  undoHeatSession(): Promise<void>;
-  updateHeatWeeklyGoal(value: number): Promise<void>;
+  markHiitSessionCompleted(): Promise<void>;
+  undoHiitSession(): Promise<void>;
+  updateHiitWeeklyGoal(value: number): Promise<void>;
   updateStrengthConfiguration(sessions: StrengthSessionInput[]): Promise<void>;
   updateWaterSettings(settings: WaterSettings): Promise<void>;
   createMuscleGroup(name: string): Promise<void>;
@@ -242,7 +242,7 @@ export function AppStateProvider({
   const [currentTime, setCurrentTime] = useState(() => now());
   const stateRef = useRef<AppState | null>(null);
   const strengthMutationQueueRef = useRef(Promise.resolve());
-  const heatMutationQueueRef = useRef(Promise.resolve());
+  const hiitMutationQueueRef = useRef(Promise.resolve());
   const fastingMutationQueueRef = useRef(Promise.resolve());
   const waterMutationQueueRef = useRef(Promise.resolve());
   const exerciseMutationQueueRef = useRef(Promise.resolve());
@@ -483,9 +483,9 @@ export function AppStateProvider({
     [now, persistState],
   );
 
-  const updateHeatCompletion = useCallback(
+  const updateHiitCompletion = useCallback(
     (delta: number) => {
-      const operation = heatMutationQueueRef.current.then(async () => {
+      const operation = hiitMutationQueueRef.current.then(async () => {
         const currentState = stateRef.current;
         if (!currentState) {
           throw new Error('Los datos todavía se están cargando.');
@@ -495,9 +495,9 @@ export function AppStateProvider({
         const currentWeekStart = getMondayDateKey(currentDate);
         const stateWithCurrentPeriods = ensureCurrentPeriods(currentState, currentDate);
         const currentWeek = stateWithCurrentPeriods.weeklyRecords[currentWeekStart];
-        const heatCompleted = Math.min(
-          Math.max(currentWeek.heatCompleted + delta, 0),
-          currentWeek.heatGoal,
+        const hiitCompleted = Math.min(
+          Math.max(currentWeek.hiitCompleted + delta, 0),
+          currentWeek.hiitGoal,
         );
 
         await persistState({
@@ -506,28 +506,28 @@ export function AppStateProvider({
             ...stateWithCurrentPeriods.weeklyRecords,
             [currentWeekStart]: {
               ...currentWeek,
-              heatCompleted,
+              hiitCompleted,
             },
           },
         });
       });
-      heatMutationQueueRef.current = operation.catch(() => undefined);
+      hiitMutationQueueRef.current = operation.catch(() => undefined);
       return operation;
     },
     [now, persistState],
   );
 
-  const markHeatSessionCompleted = useCallback(
-    () => updateHeatCompletion(1),
-    [updateHeatCompletion],
+  const markHiitSessionCompleted = useCallback(
+    () => updateHiitCompletion(1),
+    [updateHiitCompletion],
   );
 
-  const undoHeatSession = useCallback(
-    () => updateHeatCompletion(-1),
-    [updateHeatCompletion],
+  const undoHiitSession = useCallback(
+    () => updateHiitCompletion(-1),
+    [updateHiitCompletion],
   );
 
-  const updateHeatWeeklyGoal = useCallback(
+  const updateHiitWeeklyGoal = useCallback(
     async (value: number) => {
       if (!Number.isSafeInteger(value) || value < 0) {
         throw new Error('El objetivo debe ser un número entero no negativo.');
@@ -543,7 +543,7 @@ export function AppStateProvider({
           ...currentState,
           settings: {
             ...currentState.settings,
-            heatWeeklyGoal: value,
+            hiitWeeklyGoal: value,
           },
         },
         now(),
@@ -1156,9 +1156,9 @@ export function AppStateProvider({
       startFasting,
       finishFasting,
       setStrengthSessionCompleted,
-      markHeatSessionCompleted,
-      undoHeatSession,
-      updateHeatWeeklyGoal,
+      markHiitSessionCompleted,
+      undoHiitSession,
+      updateHiitWeeklyGoal,
       updateStrengthConfiguration,
       updateWaterSettings,
       createMuscleGroup,
@@ -1184,17 +1184,17 @@ export function AppStateProvider({
       deleteMuscleGroup,
       errorMessage,
       load,
-      markHeatSessionCompleted,
+      markHiitSessionCompleted,
       state,
       status,
       startFasting,
       finishFasting,
       setStrengthSessionCompleted,
-      undoHeatSession,
+      undoHiitSession,
       updateDailySteps,
       updateDailyStepGoal,
       updateExercise,
-      updateHeatWeeklyGoal,
+      updateHiitWeeklyGoal,
       removeExerciseMedia,
       updateStrengthConfiguration,
       updateWaterSettings,

@@ -36,7 +36,7 @@ export interface ComplianceStatistics {
 export interface ProgressStatistics {
   steps: StepStatistics;
   strength: WeeklyGoalStatistics;
-  heat: WeeklyGoalStatistics;
+  hiit: WeeklyGoalStatistics;
   fasting: FastingStatistics;
   compliance: ComplianceStatistics;
 }
@@ -126,12 +126,12 @@ function getComplianceStatistics(
   days: readonly DailyRecord[],
   weeks: readonly WeeklyRecord[],
   strength: WeeklyGoalStatistics,
-  heat: WeeklyGoalStatistics,
+  hiit: WeeklyGoalStatistics,
 ): ComplianceStatistics {
   const completedStepUnits = days.filter(
     (day) => day.steps !== null && day.steps >= day.stepGoal,
   ).length;
-  const completedWeeklyUnits = strength.completedWeeks + heat.completedWeeks;
+  const completedWeeklyUnits = strength.completedWeeks + hiit.completedWeeks;
   const evaluableUnits = days.length + weeks.length * 2;
   const completedUnits = completedStepUnits + completedWeeklyUnits;
 
@@ -153,17 +153,17 @@ export function getProgressStatistics(
     (week) => week.strengthSessions.filter((session) => session.completed).length,
     (week) => week.strengthGoal,
   );
-  const heat = getWeeklyGoalStatistics(
+  const hiit = getWeeklyGoalStatistics(
     weeks,
-    (week) => week.heatCompleted,
-    (week) => week.heatGoal,
+    (week) => week.hiitCompleted,
+    (week) => week.hiitGoal,
   );
 
   return {
     steps,
     strength,
-    heat,
+    hiit,
     fasting: getFastingStatistics(completedFastings),
-    compliance: getComplianceStatistics(days, weeks, strength, heat),
+    compliance: getComplianceStatistics(days, weeks, strength, hiit),
   };
 }

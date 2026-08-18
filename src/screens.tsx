@@ -245,10 +245,10 @@ export function HomeScreen() {
     currentWeek,
     errorMessage,
     finishFasting,
-    markHeatSessionCompleted,
+    markHiitSessionCompleted,
     setStrengthSessionCompleted,
     startFasting,
-    undoHeatSession,
+    undoHiitSession,
     updateDailySteps,
     waterPermissionStatus,
     waterScheduleStatus,
@@ -287,10 +287,10 @@ export function HomeScreen() {
   const nextStrengthGroups = nextStrengthSession
     ? getSessionGroups(nextStrengthSession, state.muscleGroups)
     : [];
-  const heatCompleted = currentWeek?.heatCompleted ?? 0;
-  const heatGoal = currentWeek?.heatGoal ?? state.settings.heatWeeklyGoal;
-  const heatStatus = getStrengthProgressStatus(heatCompleted, heatGoal);
-  const heatRemaining = Math.max(heatGoal - heatCompleted, 0);
+  const hiitCompleted = currentWeek?.hiitCompleted ?? 0;
+  const hiitGoal = currentWeek?.hiitGoal ?? state.settings.hiitWeeklyGoal;
+  const hiitStatus = getStrengthProgressStatus(hiitCompleted, hiitGoal);
+  const hiitRemaining = Math.max(hiitGoal - hiitCompleted, 0);
   const waterRemindersActive =
     state.settings.water.enabled &&
     waterPermissionStatus === 'granted' &&
@@ -351,17 +351,17 @@ export function HomeScreen() {
     }
   }
 
-  async function handleMarkHeatSession() {
+  async function handleMarkHiitSession() {
     try {
-      await markHeatSessionCompleted();
+      await markHiitSessionCompleted();
     } catch {
       // El contexto conserva el valor anterior y muestra el error de almacenamiento.
     }
   }
 
-  async function handleUndoHeatSession() {
+  async function handleUndoHiitSession() {
     try {
-      await undoHeatSession();
+      await undoHiitSession();
     } catch {
       // El contexto conserva el valor anterior y muestra el error de almacenamiento.
     }
@@ -521,37 +521,37 @@ export function HomeScreen() {
       </Card>
 
       <Card>
-        <SectionLabel>HEAT semanal</SectionLabel>
+        <SectionLabel>HIIT semanal</SectionLabel>
         <Text style={styles.metricText}>
-          {heatCompleted} / {heatGoal} sesiones
+          {hiitCompleted} / {hiitGoal} sesiones
         </Text>
-        <Text style={styles.supportText}>Estado: {heatStatus}</Text>
+        <Text style={styles.supportText}>Estado: {hiitStatus}</Text>
         <Text style={styles.supportText}>
-          {heatRemaining > 0
-            ? `Quedan ${heatRemaining} sesiones`
+          {hiitRemaining > 0
+            ? `Quedan ${hiitRemaining} sesiones`
             : 'Objetivo completado'}
         </Text>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Marcar sesión HEAT como completada"
-          disabled={heatCompleted >= heatGoal}
-          onPress={() => void handleMarkHeatSession()}
+          accessibilityLabel="Marcar sesión HIIT como completada"
+          disabled={hiitCompleted >= hiitGoal}
+          onPress={() => void handleMarkHiitSession()}
           style={({ pressed }) => [
             styles.primaryButton,
-            heatCompleted >= heatGoal && styles.disabledButton,
+            hiitCompleted >= hiitGoal && styles.disabledButton,
             pressed && styles.pressed,
           ]}
         >
-          <Text style={styles.primaryButtonText}>Marcar sesión HEAT</Text>
+          <Text style={styles.primaryButtonText}>Marcar sesión HIIT</Text>
         </Pressable>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Revertir última marca de HEAT"
-          disabled={heatCompleted <= 0}
-          onPress={() => void handleUndoHeatSession()}
+          accessibilityLabel="Revertir última marca de HIIT"
+          disabled={hiitCompleted <= 0}
+          onPress={() => void handleUndoHiitSession()}
           style={({ pressed }) => [
             styles.secondaryButton,
-            heatCompleted <= 0 && styles.disabledSecondaryButton,
+            hiitCompleted <= 0 && styles.disabledSecondaryButton,
             pressed && styles.pressed,
           ]}
         >
@@ -1527,7 +1527,7 @@ export function ExercisesScreen() {
 
 function hasWeeklyActivity(week: WeeklyRecord): boolean {
   return (
-    week.heatCompleted > 0 ||
+    week.hiitCompleted > 0 ||
     week.strengthSessions.some((session) => session.completed)
   );
 }
@@ -1549,7 +1549,7 @@ function WeeklyHistoryCard({
     completedStrength,
     week.strengthGoal,
   );
-  const heatStatus = getStrengthProgressStatus(week.heatCompleted, week.heatGoal);
+  const hiitStatus = getStrengthProgressStatus(week.hiitCompleted, week.hiitGoal);
 
   return (
     <View style={styles.historyCard} testID={`history-week-${week.weekStart}`}>
@@ -1596,11 +1596,11 @@ function WeeklyHistoryCard({
       </View>
 
       <View style={styles.weeklyProgressBlock}>
-        <SectionLabel>HEAT semanal</SectionLabel>
+        <SectionLabel>HIIT semanal</SectionLabel>
         <Text style={styles.metricText}>
-          {week.heatCompleted} / {week.heatGoal} sesiones
+          {week.hiitCompleted} / {week.hiitGoal} sesiones
         </Text>
-        <Text style={styles.supportText}>Estado: {heatStatus}</Text>
+        <Text style={styles.supportText}>Estado: {hiitStatus}</Text>
       </View>
     </View>
   );
@@ -1615,7 +1615,7 @@ function WeeklyProgressSummary({
   statistics,
   title,
 }: {
-  metric: 'strength' | 'heat';
+  metric: 'strength' | 'hiit';
   statistics: WeeklyGoalStatistics;
   title: string;
 }) {
@@ -1632,8 +1632,8 @@ function WeeklyProgressSummary({
           weeks: 'Semanas de fuerza cumplidas',
         }
       : {
-          sessions: 'Sesiones HEAT realizadas',
-          weeks: 'Semanas de HEAT cumplidas',
+          sessions: 'Sesiones HIIT realizadas',
+          weeks: 'Semanas de HIIT cumplidas',
         };
 
   return (
@@ -1713,9 +1713,9 @@ function ProgressSummary({
         title="Entrenamientos de fuerza por semana"
       />
       <WeeklyProgressSummary
-        metric="heat"
-        statistics={statistics.heat}
-        title="Sesiones HEAT por semana"
+        metric="hiit"
+        statistics={statistics.hiit}
+        title="Sesiones HIIT por semana"
       />
 
       <View style={styles.statisticsBlock}>
@@ -1901,14 +1901,14 @@ export function SettingsScreen() {
     currentDay,
     errorMessage,
     updateDailyStepGoal,
-    updateHeatWeeklyGoal,
+    updateHiitWeeklyGoal,
     updateStrengthConfiguration,
     updateWaterSettings,
     waterPermissionStatus,
     waterScheduleStatus,
   } = useAppState();
   const currentGoal = currentDay?.stepGoal ?? state?.settings.dailyStepGoal ?? 0;
-  const configuredHeatGoal = state?.settings.heatWeeklyGoal ?? 0;
+  const configuredHiitGoal = state?.settings.hiitWeeklyGoal ?? 0;
   const configuredWaterSettings = state?.settings.water ?? DEFAULT_WATER_SETTINGS;
   const strengthSessions = useMemo(
     () => state?.settings.strengthSessions ?? [],
@@ -1917,9 +1917,9 @@ export function SettingsScreen() {
   const [goal, setGoal] = useState(String(currentGoal));
   const [validationError, setValidationError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [heatGoal, setHeatGoal] = useState(String(configuredHeatGoal));
-  const [heatValidationError, setHeatValidationError] = useState<string | null>(null);
-  const [heatSuccessMessage, setHeatSuccessMessage] = useState<string | null>(null);
+  const [hiitGoal, setHiitGoal] = useState(String(configuredHiitGoal));
+  const [hiitValidationError, setHiitValidationError] = useState<string | null>(null);
+  const [hiitSuccessMessage, setHiitSuccessMessage] = useState<string | null>(null);
   const [strengthSessionCount, setStrengthSessionCount] = useState(
     String(strengthSessions.length),
   );
@@ -1944,11 +1944,11 @@ export function SettingsScreen() {
   }, [currentGoal]);
 
   useEffect(() => {
-    // Refresh the HEAT form when the persisted configuration changes.
+    // Refresh the HIIT form when the persisted configuration changes.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setHeatGoal(String(configuredHeatGoal));
-    setHeatValidationError(null);
-  }, [configuredHeatGoal]);
+    setHiitGoal(String(configuredHiitGoal));
+    setHiitValidationError(null);
+  }, [configuredHiitGoal]);
 
   useEffect(() => {
     // Keep the plan editor aligned with a persisted configuration.
@@ -2074,21 +2074,21 @@ export function SettingsScreen() {
     }
   }
 
-  async function handleSaveHeatGoal() {
-    setHeatValidationError(null);
-    setHeatSuccessMessage(null);
-    const parsedGoal = parseNonNegativeInteger(heatGoal);
+  async function handleSaveHiitGoal() {
+    setHiitValidationError(null);
+    setHiitSuccessMessage(null);
+    const parsedGoal = parseNonNegativeInteger(hiitGoal);
 
     if (parsedGoal === null) {
-      setHeatValidationError(
-        'Escribe un número entero de sesiones HEAT igual o mayor que cero.',
+      setHiitValidationError(
+        'Escribe un número entero de sesiones HIIT igual o mayor que cero.',
       );
       return;
     }
 
     try {
-      await updateHeatWeeklyGoal(parsedGoal);
-      setHeatSuccessMessage('Objetivo HEAT guardado para la próxima semana');
+      await updateHiitWeeklyGoal(parsedGoal);
+      setHiitSuccessMessage('Objetivo HIIT guardado para la próxima semana');
     } catch {
       // El contexto conserva el valor anterior y muestra el error de almacenamiento.
     }
@@ -2258,44 +2258,44 @@ export function SettingsScreen() {
       </Card>
 
       <Card>
-        <SectionLabel>HEAT semanal</SectionLabel>
+        <SectionLabel>HIIT semanal</SectionLabel>
         <Text style={styles.supportText}>
-          Objetivo semanal: {formatNumber(configuredHeatGoal)}{' '}
-          {configuredHeatGoal === 1 ? 'sesión' : 'sesiones'}
+          Objetivo semanal: {formatNumber(configuredHiitGoal)}{' '}
+          {configuredHiitGoal === 1 ? 'sesión' : 'sesiones'}
         </Text>
         <TextInput
-          accessibilityLabel="Objetivo semanal de HEAT"
+          accessibilityLabel="Objetivo semanal de HIIT"
           autoCapitalize="none"
           keyboardType="number-pad"
           onChangeText={(value) => {
-            setHeatGoal(value);
-            setHeatValidationError(null);
-            setHeatSuccessMessage(null);
+            setHiitGoal(value);
+            setHiitValidationError(null);
+            setHiitSuccessMessage(null);
           }}
-          placeholder="Número de sesiones HEAT"
+          placeholder="Número de sesiones HIIT"
           placeholderTextColor={colors.textMuted}
           style={styles.input}
-          testID="heat-weekly-goal-input"
-          value={heatGoal}
+          testID="hiit-weekly-goal-input"
+          value={hiitGoal}
         />
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Guardar objetivo semanal de HEAT"
-          onPress={() => void handleSaveHeatGoal()}
+          accessibilityLabel="Guardar objetivo semanal de HIIT"
+          onPress={() => void handleSaveHiitGoal()}
           style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
         >
-          <Text style={styles.primaryButtonText}>Guardar objetivo HEAT</Text>
+          <Text style={styles.primaryButtonText}>Guardar objetivo HIIT</Text>
         </Pressable>
         <Text style={styles.supportText}>
           Los cambios se aplicarán el próximo lunes y no modifican la semana actual.
         </Text>
-        {heatValidationError ? (
+        {hiitValidationError ? (
           <Text accessibilityRole="alert" style={styles.errorText}>
-            {heatValidationError}
+            {hiitValidationError}
           </Text>
         ) : null}
-        {heatSuccessMessage ? (
-          <Text style={styles.successText}>{heatSuccessMessage}</Text>
+        {hiitSuccessMessage ? (
+          <Text style={styles.successText}>{hiitSuccessMessage}</Text>
         ) : null}
       </Card>
 

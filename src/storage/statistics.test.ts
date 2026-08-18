@@ -13,8 +13,8 @@ function createWeek(
   weekStart: string,
   strengthGoal: number,
   strengthCompleted: number,
-  heatGoal: number,
-  heatCompleted: number,
+  hiitGoal: number,
+  hiitCompleted: number,
 ): WeeklyRecord {
   return {
     weekStart,
@@ -25,8 +25,8 @@ function createWeek(
       muscleGroupIds: [],
       completed: true,
     })),
-    heatGoal,
-    heatCompleted,
+    hiitGoal,
+    hiitCompleted,
   };
 }
 
@@ -59,7 +59,7 @@ describe('progress statistics', () => {
       percentage: null,
       weeklyProgress: [],
     });
-    expect(statistics.heat).toEqual({
+    expect(statistics.hiit).toEqual({
       evaluatedWeeks: 0,
       completedWeeks: 0,
       completedSessions: 0,
@@ -121,7 +121,7 @@ describe('progress statistics', () => {
         },
       ],
     });
-    expect(statistics.heat).toEqual({
+    expect(statistics.hiit).toEqual({
       evaluatedWeeks: 2,
       completedWeeks: 1,
       completedSessions: 2,
@@ -163,7 +163,7 @@ describe('progress statistics', () => {
     expect(statistics.steps.completedDays).toBe(1);
     expect(statistics.strength.completedWeeks).toBe(1);
     expect(statistics.strength.completedSessions).toBe(2);
-    expect(statistics.heat.completedWeeks).toBe(1);
+    expect(statistics.hiit.completedWeeks).toBe(1);
     expect(statistics.compliance).toEqual({
       completedUnits: 3,
       evaluableUnits: 3,

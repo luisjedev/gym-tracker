@@ -1037,7 +1037,7 @@ describe('Gym Tracker app flow', () => {
     await waitFor(() => expect(screen.getByText('1 / 3 sesiones')).toBeTruthy());
   });
 
-  it('shows, caps, corrects, and persists the weekly HEAT checklist', async () => {
+  it('shows, caps, corrects, and persists the weekly HIIT checklist', async () => {
     const storage = new MemoryStorage();
     const now = new Date(2026, 7, 17, 12, 0, 0);
 
@@ -1047,36 +1047,36 @@ describe('Gym Tracker app flow', () => {
     expect(screen.getByText('0 / 1 sesiones')).toBeTruthy();
     expect(screen.getAllByText('Estado: Pendiente')).toHaveLength(2);
     expect(
-      screen.getByRole('button', { name: 'Marcar sesión HEAT como completada' }),
+      screen.getByRole('button', { name: 'Marcar sesión HIIT como completada' }),
     ).toBeTruthy();
     expect(
-      screen.getByRole('button', { name: 'Revertir última marca de HEAT' }),
+      screen.getByRole('button', { name: 'Revertir última marca de HIIT' }),
     ).toBeTruthy();
 
     await fireEvent.press(
-      screen.getByRole('button', { name: 'Marcar sesión HEAT como completada' }),
+      screen.getByRole('button', { name: 'Marcar sesión HIIT como completada' }),
     );
     await waitFor(() => expect(screen.getByText('1 / 1 sesiones')).toBeTruthy());
     expect(screen.getByText('Estado: Completado')).toBeTruthy();
 
     await fireEvent.press(
-      screen.getByRole('button', { name: 'Marcar sesión HEAT como completada' }),
+      screen.getByRole('button', { name: 'Marcar sesión HIIT como completada' }),
     );
     expect(screen.getByText('1 / 1 sesiones')).toBeTruthy();
 
     await fireEvent.press(
-      screen.getByRole('button', { name: 'Revertir última marca de HEAT' }),
+      screen.getByRole('button', { name: 'Revertir última marca de HIIT' }),
     );
     await waitFor(() => expect(screen.getByText('0 / 1 sesiones')).toBeTruthy());
     expect(screen.getAllByText('Estado: Pendiente')).toHaveLength(2);
 
     await fireEvent.press(
-      screen.getByRole('button', { name: 'Revertir última marca de HEAT' }),
+      screen.getByRole('button', { name: 'Revertir última marca de HIIT' }),
     );
     expect(screen.getByText('0 / 1 sesiones')).toBeTruthy();
 
     await fireEvent.press(
-      screen.getByRole('button', { name: 'Marcar sesión HEAT como completada' }),
+      screen.getByRole('button', { name: 'Marcar sesión HIIT como completada' }),
     );
     await waitFor(() => expect(screen.getByText('1 / 1 sesiones')).toBeTruthy());
     await firstRender.unmount();
@@ -1086,7 +1086,7 @@ describe('Gym Tracker app flow', () => {
     expect(screen.getByText('Estado: Completado')).toBeTruthy();
   });
 
-  it('applies a changed HEAT goal on Monday without rewriting the previous week', async () => {
+  it('applies a changed HIIT goal on Monday without rewriting the previous week', async () => {
     const storage = new MemoryStorage();
     let currentNow = new Date(2026, 7, 16, 12, 0, 0);
     const now = () => currentNow;
@@ -1094,37 +1094,37 @@ describe('Gym Tracker app flow', () => {
     let rendered = await render(<App storage={storage} now={now} />);
     await waitFor(() => expect(screen.getByText('0 / 1 sesiones')).toBeTruthy());
     await fireEvent.press(
-      screen.getByRole('button', { name: 'Marcar sesión HEAT como completada' }),
+      screen.getByRole('button', { name: 'Marcar sesión HIIT como completada' }),
     );
     await waitFor(() => expect(screen.getByText('1 / 1 sesiones')).toBeTruthy());
 
     await fireEvent.press(screen.getByRole('button', { name: /Ajustes/ }));
     await waitFor(() =>
-      expect(screen.getByTestId('heat-weekly-goal-input')).toBeTruthy(),
+      expect(screen.getByTestId('hiit-weekly-goal-input')).toBeTruthy(),
     );
     await fireEvent.changeText(
-      screen.getByTestId('heat-weekly-goal-input'),
+      screen.getByTestId('hiit-weekly-goal-input'),
       '-1',
     );
     await fireEvent.press(
-      screen.getByRole('button', { name: 'Guardar objetivo semanal de HEAT' }),
+      screen.getByRole('button', { name: 'Guardar objetivo semanal de HIIT' }),
     );
     expect(
       screen.getByText(
-        'Escribe un número entero de sesiones HEAT igual o mayor que cero.',
+        'Escribe un número entero de sesiones HIIT igual o mayor que cero.',
       ),
     ).toBeTruthy();
     expect(screen.getByText('Objetivo semanal: 1 sesión')).toBeTruthy();
 
     await fireEvent.changeText(
-      screen.getByTestId('heat-weekly-goal-input'),
+      screen.getByTestId('hiit-weekly-goal-input'),
       '3',
     );
     await fireEvent.press(
-      screen.getByRole('button', { name: 'Guardar objetivo semanal de HEAT' }),
+      screen.getByRole('button', { name: 'Guardar objetivo semanal de HIIT' }),
     );
     await waitFor(() =>
-      expect(screen.getByText('Objetivo HEAT guardado para la próxima semana')).toBeTruthy(),
+      expect(screen.getByText('Objetivo HIIT guardado para la próxima semana')).toBeTruthy(),
     );
 
     await fireEvent.press(screen.getByRole('button', { name: /Inicio/ }));
@@ -1135,7 +1135,7 @@ describe('Gym Tracker app flow', () => {
     rendered = await render(<App storage={storage} now={now} />);
     await waitFor(() => expect(screen.getAllByText('0 / 3 sesiones')).toHaveLength(2));
     await fireEvent.press(
-      screen.getByRole('button', { name: 'Marcar sesión HEAT como completada' }),
+      screen.getByRole('button', { name: 'Marcar sesión HIIT como completada' }),
     );
     await waitFor(() => expect(screen.getByText('1 / 3 sesiones')).toBeTruthy());
     await rendered.unmount();
@@ -1726,7 +1726,7 @@ describe('Gym Tracker app flow', () => {
       }),
     );
     await fireEvent.press(
-      screen.getByRole('button', { name: 'Marcar sesión HEAT como completada' }),
+      screen.getByRole('button', { name: 'Marcar sesión HIIT como completada' }),
     );
     await waitFor(() => expect(screen.getByText('1 / 3 sesiones')).toBeTruthy());
 
@@ -1757,13 +1757,13 @@ describe('Gym Tracker app flow', () => {
       ).toBeTruthy(),
     );
 
-    await fireEvent.changeText(screen.getByTestId('heat-weekly-goal-input'), '2');
+    await fireEvent.changeText(screen.getByTestId('hiit-weekly-goal-input'), '2');
     await fireEvent.press(
-      screen.getByRole('button', { name: 'Guardar objetivo semanal de HEAT' }),
+      screen.getByRole('button', { name: 'Guardar objetivo semanal de HIIT' }),
     );
     await waitFor(() =>
       expect(
-        screen.getByText('Objetivo HEAT guardado para la próxima semana'),
+        screen.getByText('Objetivo HIIT guardado para la próxima semana'),
       ).toBeTruthy(),
     );
     await rendered.unmount();
@@ -1815,7 +1815,7 @@ describe('Gym Tracker app flow', () => {
     expect(screen.getByText('Días con objetivo cumplido: Sin datos')).toBeTruthy();
     expect(screen.getByText('Media de pasos: Sin datos')).toBeTruthy();
     expect(screen.getByText('Semanas de fuerza cumplidas: Sin datos')).toBeTruthy();
-    expect(screen.getByText('Semanas de HEAT cumplidas: Sin datos')).toBeTruthy();
+    expect(screen.getByText('Semanas de HIIT cumplidas: Sin datos')).toBeTruthy();
     expect(screen.getByText('Último ayuno: Sin ayunos finalizados')).toBeTruthy();
     expect(screen.getByText('Cumplimiento general: Sin datos')).toBeTruthy();
   });
@@ -1849,15 +1849,15 @@ describe('Gym Tracker app flow', () => {
           { ...secondSession, completed: true },
           { ...thirdSession, completed: false },
         ],
-        heatGoal: 1,
-        heatCompleted: 1,
+        hiitGoal: 1,
+        hiitCompleted: 1,
       },
       '2026-08-10': {
         weekStart: '2026-08-10',
         strengthGoal: 1,
         strengthSessions: [{ ...firstSession, completed: true }],
-        heatGoal: 2,
-        heatCompleted: 1,
+        hiitGoal: 2,
+        hiitCompleted: 1,
       },
     };
     state.fasting.active = {
@@ -1889,8 +1889,8 @@ describe('Gym Tracker app flow', () => {
     expect(screen.getByText('Entrenamientos de fuerza por semana')).toBeTruthy();
     expect(screen.getByText('Sesiones de fuerza realizadas: 3')).toBeTruthy();
     expect(screen.getByText('Semanas de fuerza cumplidas: 1 de 2 (50%)')).toBeTruthy();
-    expect(screen.getByText('Sesiones HEAT realizadas: 2')).toBeTruthy();
-    expect(screen.getByText('Semanas de HEAT cumplidas: 1 de 2 (50%)')).toBeTruthy();
+    expect(screen.getByText('Sesiones HIIT realizadas: 2')).toBeTruthy();
+    expect(screen.getByText('Semanas de HIIT cumplidas: 1 de 2 (50%)')).toBeTruthy();
     expect(screen.getByText('Último ayuno: 2 h 5 min')).toBeTruthy();
     expect(screen.getByText('Media de ayunos: 1 h 33 min')).toBeTruthy();
     expect(screen.getByText('Ayuno activo')).toBeTruthy();

@@ -6,8 +6,8 @@ function createWeek(weekStart: string): WeeklyRecord {
     weekStart,
     strengthGoal: 3,
     strengthSessions: [],
-    heatGoal: 1,
-    heatCompleted: 0,
+    hiitGoal: 1,
+    hiitCompleted: 0,
   };
 }
 

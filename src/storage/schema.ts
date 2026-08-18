@@ -3,7 +3,7 @@ import { APP_STORAGE_KEY } from './appStorage';
 
 export const STORAGE_SCHEMA_VERSION = 1;
 export const DEFAULT_DAILY_STEP_GOAL = 7_000;
-export const DEFAULT_HEAT_WEEKLY_GOAL = 1;
+export const DEFAULT_HIIT_WEEKLY_GOAL = 1;
 export const DEFAULT_WATER_SETTINGS = {
   enabled: false,
   startTime: '08:00',
@@ -45,8 +45,8 @@ export interface WeeklyRecord {
   weekStart: string;
   strengthGoal: number;
   strengthSessions: StrengthSession[];
-  heatGoal: number;
-  heatCompleted: number;
+  hiitGoal: number;
+  hiitCompleted: number;
 }
 
 export interface MediaItem {
@@ -127,7 +127,7 @@ export interface AppState {
   settings: {
     dailyStepGoal: number;
     strengthSessions: StrengthSession[];
-    heatWeeklyGoal: number;
+    hiitWeeklyGoal: number;
     water: WaterSettings;
   };
   muscleGroups: MuscleGroup[];
@@ -207,8 +207,8 @@ function createWeeklyRecord(
     weekStart,
     strengthGoal: settings.strengthSessions.length,
     strengthSessions: copyStrengthSessions(settings.strengthSessions),
-    heatGoal: settings.heatWeeklyGoal,
-    heatCompleted: 0,
+    hiitGoal: settings.hiitWeeklyGoal,
+    hiitCompleted: 0,
   };
 }
 
@@ -249,7 +249,7 @@ export function createDefaultState(now = new Date()): AppState {
     settings: {
       dailyStepGoal: DEFAULT_DAILY_STEP_GOAL,
       strengthSessions: copyStrengthSessions(DEFAULT_STRENGTH_SESSIONS),
-      heatWeeklyGoal: DEFAULT_HEAT_WEEKLY_GOAL,
+      hiitWeeklyGoal: DEFAULT_HIIT_WEEKLY_GOAL,
       water: { ...DEFAULT_WATER_SETTINGS },
     },
     muscleGroups: DEFAULT_MUSCLE_GROUPS.map((group) => ({ ...group })),
@@ -433,15 +433,15 @@ function isValidWeeklyRecord(value: unknown): value is WeeklyRecord {
     !isNonNegativeSafeInteger(value.strengthGoal) ||
     !Array.isArray(value.strengthSessions) ||
     !value.strengthSessions.every(isValidStrengthSession) ||
-    !isNonNegativeSafeInteger(value.heatGoal) ||
-    !isNonNegativeSafeInteger(value.heatCompleted)
+    !isNonNegativeSafeInteger(value.hiitGoal) ||
+    !isNonNegativeSafeInteger(value.hiitCompleted)
   ) {
     return false;
   }
 
   return (
     value.strengthGoal === value.strengthSessions.length &&
-    value.heatCompleted <= value.heatGoal
+    value.hiitCompleted <= value.hiitGoal
   );
 }
 
@@ -460,9 +460,9 @@ function isValidState(value: unknown): value is AppState {
     settings.strengthSessions.length >= 1 &&
     settings.strengthSessions.length <= 7 &&
     settings.strengthSessions.every(isValidStrengthSession) &&
-    typeof settings.heatWeeklyGoal === 'number' &&
-    Number.isInteger(settings.heatWeeklyGoal) &&
-    settings.heatWeeklyGoal >= 0 &&
+    typeof settings.hiitWeeklyGoal === 'number' &&
+    Number.isInteger(settings.hiitWeeklyGoal) &&
+    settings.hiitWeeklyGoal >= 0 &&
     isValidWaterSettings(settings.water) &&
     Array.isArray(value.muscleGroups) &&
     value.muscleGroups.every(isValidMuscleGroup) &&

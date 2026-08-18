@@ -45,7 +45,7 @@ Ejecuta esta lista con cada APK final y anota la fecha, el `versionCode` y el en
 la build:
 
 - [ ] Navegar por **Inicio**, **Ejercicios**, **Historial** y **Ajustes**.
-- [ ] Registrar pasos, completar y revertir fuerza/HEAT, e iniciar y finalizar un ayuno.
+- [ ] Registrar pasos, completar y revertir fuerza/HIIT, e iniciar y finalizar un ayuno.
 - [ ] Cerrar la aplicación desde recientes, abrirla de nuevo y comprobar que esos datos y los ajustes siguen presentes.
 - [ ] Crear un ejercicio, seleccionar una imagen y un vídeo, abrir ambos, eliminar uno y comprobar el resultado tras reabrir la app.
 - [ ] Cancelar el selector multimedia y comprobar que no se presenta como guardado.
