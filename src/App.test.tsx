@@ -122,6 +122,51 @@ describe('Gym Tracker app flow', () => {
     await waitFor(() => expect(screen.getByText('Objetivo: 8.000 pasos')).toBeTruthy());
   });
 
+  it('shows the home progress dashboard, caps visual percentages, and keeps water in settings only', async () => {
+    const storage = new MemoryStorage();
+    const now = new Date(2026, 7, 17, 12, 0, 0);
+    const state = createDefaultState(now);
+    const today = Object.values(state.dailyRecords)[0];
+    const week = Object.values(state.weeklyRecords)[0];
+
+    today.steps = 10_000;
+    week.strengthSessions = week.strengthSessions.map((session, index) => ({
+      ...session,
+      completed: index === 0,
+    }));
+    await saveAppState(storage, state);
+
+    await render(<App storage={storage} now={() => now} />);
+    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
+
+    expect(screen.getByTestId('home-daily-progress').props.accessibilityValue).toMatchObject({
+      min: 0,
+      max: 100,
+      now: 100,
+    });
+    expect(screen.getByTestId('home-strength-progress').props.accessibilityValue).toMatchObject({
+      min: 0,
+      max: 100,
+      now: 33,
+    });
+    expect(screen.getByTestId('home-hiit-progress').props.accessibilityValue).toMatchObject({
+      min: 0,
+      max: 100,
+      now: 0,
+    });
+    expect(screen.getByText('100%')).toBeTruthy();
+    expect(screen.getByText('33%')).toBeTruthy();
+    expect(screen.getByText('0%')).toBeTruthy();
+    expect(screen.getByText('10.000 / 7.000 pasos')).toBeTruthy();
+    expect(screen.getByText('1 / 3 sesiones')).toBeTruthy();
+    expect(screen.getByText('0 / 1 sesiones')).toBeTruthy();
+    expect(screen.queryByTestId('home-water-card')).toBeNull();
+
+    await fireEvent.press(screen.getByRole('button', { name: /Ajustes/ }));
+    await waitFor(() => expect(screen.getByText('Recordatorios de agua')).toBeTruthy());
+    expect(screen.getByTestId('water-enabled-switch')).toBeTruthy();
+  });
+
   it('shows an empty history and keeps navigation available before any activity', async () => {
     const storage = new MemoryStorage();
 
@@ -1140,8 +1185,8 @@ describe('Gym Tracker app flow', () => {
         storage={storage}
       />,
     );
-    await waitFor(() => expect(screen.getByText('Inactivos')).toBeTruthy());
     await fireEvent.press(screen.getByRole('button', { name: /Ajustes/ }));
+    await waitFor(() => expect(screen.getByText('Inactivos')).toBeTruthy());
     await waitFor(() =>
       expect(
         screen.getByText(
@@ -1190,7 +1235,8 @@ describe('Gym Tracker app flow', () => {
         ),
       ).toBeTruthy(),
     );
-    expect(screen.getByText('Inactivos')).toBeTruthy();
+    await fireEvent.press(screen.getByRole('button', { name: /Ajustes/ }));
+    await waitFor(() => expect(screen.getByText('Inactivos')).toBeTruthy());
     expect(notifications.scheduled.size).toBe(8);
     await failedLoad.unmount();
 
@@ -1203,6 +1249,7 @@ describe('Gym Tracker app flow', () => {
         storage={storage}
       />,
     );
+    await fireEvent.press(screen.getByRole('button', { name: /Ajustes/ }));
     await waitFor(() => expect(screen.getByText('Activos')).toBeTruthy());
   });
 
@@ -1330,6 +1377,7 @@ describe('Gym Tracker app flow', () => {
         storage={storage}
       />,
     );
+    await fireEvent.press(screen.getByRole('button', { name: /Ajustes/ }));
     await waitFor(() => expect(screen.getByText('Inactivos')).toBeTruthy());
     expect(
       screen.getByText(

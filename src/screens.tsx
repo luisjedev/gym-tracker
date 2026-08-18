@@ -134,6 +134,82 @@ function getStrengthProgressStatus(completed: number, goal: number): string {
   return completed > 0 ? 'Parcial' : 'Pendiente';
 }
 
+function getProgressPercentage(current: number, goal: number): number {
+  if (goal <= 0) {
+    return current >= goal ? 100 : 0;
+  }
+
+  return Math.min(100, Math.max(0, Math.round((current / goal) * 100)));
+}
+
+const PROGRESS_SEGMENT_COUNT = 32;
+
+function CircularProgress({
+  current,
+  goal,
+  label,
+  size,
+  testID,
+}: {
+  current: number;
+  goal: number;
+  label: string;
+  size: number;
+  testID: string;
+}) {
+  const percentage = getProgressPercentage(current, goal);
+  const completedSegmentCount = Math.ceil(
+    (percentage / 100) * PROGRESS_SEGMENT_COUNT,
+  );
+  const segmentWidth = size >= 160 ? 8 : 7;
+  const segmentHeight = size >= 160 ? 22 : 18;
+  const segmentRadius = size / 2 - 15;
+
+  return (
+    <View
+      accessible
+      accessibilityLabel={`${label}: ${formatNumber(current)} de ${formatNumber(goal)}`}
+      accessibilityRole="progressbar"
+      accessibilityValue={{ min: 0, max: 100, now: percentage, text: `${percentage}%` }}
+      style={[styles.circularProgress, { height: size, width: size }]}
+      testID={testID}
+    >
+      {Array.from({ length: PROGRESS_SEGMENT_COUNT }, (_, index) => {
+        const angle = (index / PROGRESS_SEGMENT_COUNT) * Math.PI * 2 - Math.PI / 2;
+        const angleInDegrees = (index / PROGRESS_SEGMENT_COUNT) * 360;
+        const left = size / 2 + Math.cos(angle) * segmentRadius - segmentWidth / 2;
+        const top = size / 2 + Math.sin(angle) * segmentRadius - segmentHeight / 2;
+
+        return (
+          <View
+            key={`${testID}-segment-${index}`}
+            style={[
+              styles.progressSegment,
+              {
+                backgroundColor:
+                  index < completedSegmentCount
+                    ? colors.accent
+                    : colors.neutralSurface,
+                height: segmentHeight,
+                left,
+                transform: [{ rotate: `${angleInDegrees + 90}deg` }],
+                width: segmentWidth,
+                top,
+              },
+            ]}
+            testID={`${testID}-segment-${index}`}
+          />
+        );
+      })}
+      <View pointerEvents="none" style={styles.circularProgressCenter}>
+        <Text style={styles.circularProgressCurrent}>{formatNumber(current)}</Text>
+        <Text style={styles.circularProgressGoal}>de {formatNumber(goal)}</Text>
+        <Text style={styles.circularProgressPercentage}>{percentage}%</Text>
+      </View>
+    </View>
+  );
+}
+
 function toStrengthSessionInput(session: StrengthSession): StrengthSessionInput {
   return {
     name: session.name,
@@ -253,8 +329,6 @@ export function HomeScreen() {
     startFasting,
     undoHiitSession,
     updateDailySteps,
-    waterPermissionStatus,
-    waterScheduleStatus,
   } = useAppState();
   const navigation = useNavigation<BottomTabNavigationProp<RootTabParamList>>();
   const [stepsInput, setStepsInput] = useState(
@@ -294,10 +368,6 @@ export function HomeScreen() {
   const hiitGoal = currentWeek?.hiitGoal ?? state.settings.hiitWeeklyGoal;
   const hiitStatus = getStrengthProgressStatus(hiitCompleted, hiitGoal);
   const hiitRemaining = Math.max(hiitGoal - hiitCompleted, 0);
-  const waterRemindersActive =
-    state.settings.water.enabled &&
-    waterPermissionStatus === 'granted' &&
-    waterScheduleStatus === 'scheduled';
   const activeFasting = state.fasting.active;
   const activeFastingDuration = activeFasting
     ? calculateFastingDurationMinutes(
@@ -380,22 +450,33 @@ export function HomeScreen() {
 
       <Card testID="home-card">
         <SectionLabel>Pasos de hoy</SectionLabel>
-        <Text style={styles.metricText}>
-          {formatNumber(currentSteps)} / {formatNumber(stepGoal)} pasos
-        </Text>
-        <Text style={styles.supportText}>
-          Objetivo: {formatNumber(stepGoal)} pasos
-        </Text>
-        <Text style={styles.supportText}>
-          {remainingSteps > 0
-            ? `Faltan ${formatNumber(remainingSteps)} pasos`
-            : 'Objetivo completado'}
-        </Text>
-        {currentDay?.steps === null || currentDay?.steps === undefined ? (
-          <Text style={styles.emptyText}>
-            Todavía no hay pasos registrados. Introduce el total de hoy.
-          </Text>
-        ) : null}
+        <View style={styles.dashboardProgressRow}>
+          <CircularProgress
+            current={currentSteps}
+            goal={stepGoal}
+            label="Pasos diarios"
+            size={156}
+            testID="home-daily-progress"
+          />
+          <View style={styles.dashboardProgressCopy}>
+            <Text style={styles.metricText}>
+              {formatNumber(currentSteps)} / {formatNumber(stepGoal)} pasos
+            </Text>
+            <Text style={styles.supportText}>
+              Objetivo: {formatNumber(stepGoal)} pasos
+            </Text>
+            <Text style={styles.supportText}>
+              {remainingSteps > 0
+                ? `Faltan ${formatNumber(remainingSteps)} pasos`
+                : 'Objetivo completado'}
+            </Text>
+            {currentDay?.steps === null || currentDay?.steps === undefined ? (
+              <Text style={styles.emptyText}>
+                Todavía no hay pasos registrados. Introduce el total de hoy.
+              </Text>
+            ) : null}
+          </View>
+        </View>
         <TextInput
           accessibilityLabel="Pasos de hoy"
           autoCapitalize="none"
@@ -479,15 +560,26 @@ export function HomeScreen() {
 
       <Card>
         <SectionLabel>Fuerza semanal</SectionLabel>
-        <Text style={styles.metricText}>
-          {completedStrength} / {strengthGoal} sesiones
-        </Text>
-        <Text style={styles.supportText}>Estado: {strengthStatus}</Text>
-        <Text style={styles.supportText}>
-          {completedStrength >= strengthGoal
-            ? 'Objetivo completado'
-            : `Quedan ${strengthGoal - completedStrength} sesiones`}
-        </Text>
+        <View style={styles.dashboardProgressRow}>
+          <CircularProgress
+            current={completedStrength}
+            goal={strengthGoal}
+            label="Fuerza semanal"
+            size={132}
+            testID="home-strength-progress"
+          />
+          <View style={styles.dashboardProgressCopy}>
+            <Text style={styles.metricText}>
+              {completedStrength} / {strengthGoal} sesiones
+            </Text>
+            <Text style={styles.supportText}>Estado: {strengthStatus}</Text>
+            <Text style={styles.supportText}>
+              {completedStrength >= strengthGoal
+                ? 'Objetivo completado'
+                : `Quedan ${strengthGoal - completedStrength} sesiones`}
+            </Text>
+          </View>
+        </View>
         <View style={styles.nextSessionBlock}>
           <Text style={styles.sectionLabel}>Próxima sesión</Text>
           {nextStrengthSession ? (
@@ -525,15 +617,26 @@ export function HomeScreen() {
 
       <Card>
         <SectionLabel>HIIT semanal</SectionLabel>
-        <Text style={styles.metricText}>
-          {hiitCompleted} / {hiitGoal} sesiones
-        </Text>
-        <Text style={styles.supportText}>Estado: {hiitStatus}</Text>
-        <Text style={styles.supportText}>
-          {hiitRemaining > 0
-            ? `Quedan ${hiitRemaining} sesiones`
-            : 'Objetivo completado'}
-        </Text>
+        <View style={styles.dashboardProgressRow}>
+          <CircularProgress
+            current={hiitCompleted}
+            goal={hiitGoal}
+            label="HIIT semanal"
+            size={132}
+            testID="home-hiit-progress"
+          />
+          <View style={styles.dashboardProgressCopy}>
+            <Text style={styles.metricText}>
+              {hiitCompleted} / {hiitGoal} sesiones
+            </Text>
+            <Text style={styles.supportText}>Estado: {hiitStatus}</Text>
+            <Text style={styles.supportText}>
+              {hiitRemaining > 0
+                ? `Quedan ${hiitRemaining} sesiones`
+                : 'Objetivo completado'}
+            </Text>
+          </View>
+        </View>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Marcar sesión HIIT como completada"
@@ -560,26 +663,6 @@ export function HomeScreen() {
         >
           <Text style={styles.secondaryButtonText}>Revertir última marca</Text>
         </Pressable>
-      </Card>
-
-      <Card>
-        <SectionLabel>Recordatorios de agua</SectionLabel>
-        <Text style={styles.metricText}>
-          {waterRemindersActive ? 'Activos' : 'Inactivos'}
-        </Text>
-        <Text style={styles.supportText}>
-          {state.settings.water.startTime}–{state.settings.water.endTime} cada{' '}
-          {state.settings.water.intervalHours} horas
-        </Text>
-        <Text style={styles.emptyText}>
-          {waterRemindersActive
-            ? 'Los avisos se repiten cada día dentro de la ventana configurada.'
-            : waterPermissionStatus === 'denied'
-              ? 'El permiso de notificaciones está denegado. Revísalo desde Ajustes.'
-              : waterScheduleStatus === 'error'
-                ? 'No se pudieron actualizar los avisos. Revisa los permisos e inténtalo de nuevo.'
-                : 'Activa los avisos desde Ajustes cuando quieras recibirlos.'}
-        </Text>
       </Card>
     </Screen>
   );
@@ -2611,6 +2694,60 @@ const styles = StyleSheet.create({
     shadowOffset: { height: 4, width: 0 },
     shadowOpacity: 0.2,
     shadowRadius: 8,
+  },
+  dashboardProgressRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 14,
+  },
+  dashboardProgressCopy: {
+    flex: 1,
+    gap: 6,
+  },
+  circularProgress: {
+    alignItems: 'center',
+    backgroundColor: colors.surfaceSunken,
+    borderColor: colors.border,
+    borderRadius: 999,
+    borderWidth: 1,
+    flexShrink: 0,
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  progressSegment: {
+    borderRadius: 99,
+    position: 'absolute',
+  },
+  circularProgressCenter: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderColor: colors.borderStrong,
+    borderRadius: 999,
+    borderWidth: 1,
+    height: '62%',
+    justifyContent: 'center',
+    position: 'absolute',
+    width: '62%',
+  },
+  circularProgressCurrent: {
+    color: colors.text,
+    fontSize: 22,
+    fontWeight: '800',
+    lineHeight: 25,
+    textAlign: 'center',
+  },
+  circularProgressGoal: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    lineHeight: 15,
+    textAlign: 'center',
+  },
+  circularProgressPercentage: {
+    color: colors.accent,
+    fontSize: 13,
+    fontWeight: '800',
+    lineHeight: 16,
+    textAlign: 'center',
   },
   sectionLabel: {
     color: colors.accent,
