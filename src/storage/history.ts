@@ -1,4 +1,9 @@
-import type { CompletedFasting, DailyRecord, WeeklyRecord } from './schema';
+import {
+  getMondayDateKey,
+  type CompletedFasting,
+  type DailyRecord,
+  type WeeklyRecord,
+} from './schema';
 
 export function getHistoryDays(
   dailyRecords: Record<string, DailyRecord>,
@@ -14,6 +19,39 @@ export function getHistoryWeeks(
   return Object.values(weeklyRecords).sort((left, right) =>
     right.weekStart.localeCompare(left.weekStart),
   );
+}
+
+export interface WeeklyStepSummary {
+  recordedDays: number;
+  completedDays: number;
+  totalSteps: number;
+  averageSteps: number | null;
+}
+
+export function getWeeklyStepSummary(
+  dailyRecords: Record<string, DailyRecord>,
+  weekStart: string,
+): WeeklyStepSummary {
+  const daysInWeek = getHistoryDays(dailyRecords).filter(
+    (day) => getMondayDateKey(new Date(`${day.date}T12:00:00`)) === weekStart,
+  );
+  const recordedDays = daysInWeek.filter((day) => day.steps !== null);
+  const totalSteps = recordedDays.reduce(
+    (total, day) => total + (day.steps ?? 0),
+    0,
+  );
+
+  return {
+    recordedDays: recordedDays.length,
+    completedDays: recordedDays.filter(
+      (day) => (day.steps ?? 0) >= day.stepGoal,
+    ).length,
+    totalSteps,
+    averageSteps:
+      recordedDays.length > 0
+        ? Math.round(totalSteps / recordedDays.length)
+        : null,
+  };
 }
 
 export function getHistoryFastings(

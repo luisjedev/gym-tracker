@@ -1190,9 +1190,12 @@ describe('Gym Tracker app flow', () => {
       expect(screen.getByTestId('water-start-time-input')).toBeTruthy(),
     );
 
+    expect(screen.getByTestId('settings-overview-card')).toBeTruthy();
+    expect(screen.getByTestId('settings-exercise-catalog-card')).toBeTruthy();
     expect(screen.getByTestId('water-start-time-input').props.value).toBe('08:00');
     expect(screen.getByTestId('water-end-time-input').props.value).toBe('22:00');
     expect(screen.getByTestId('water-interval-input').props.value).toBe('2');
+    expect(screen.getByTestId('water-permission-status')).toHaveTextContent('Pendiente');
     expect(screen.getByText('Inactivos')).toBeTruthy();
 
     await fireEvent(
@@ -1202,6 +1205,7 @@ describe('Gym Tracker app flow', () => {
     );
 
     await waitFor(() => expect(screen.getByText('Activos')).toBeTruthy());
+    expect(screen.getByTestId('water-permission-status')).toHaveTextContent('Concedido');
     expect(notifications.permissionRequests).toBe(1);
     expect(notifications.channelCreations).toBe(1);
     expect([...notifications.scheduled.values()]).toEqual([
@@ -1686,6 +1690,70 @@ describe('Gym Tracker app flow', () => {
     await waitFor(() => expect(screen.getByText('Historial de semanas')).toBeTruthy());
     expect(screen.getByText('Semana del lunes 03/08/2026')).toBeTruthy();
     expect(screen.getByText('Grupos musculares: Pecho, Hombros, Tríceps')).toBeTruthy();
+  });
+
+  it('shows compact step, strength, and HIIT indicators for each historical week', async () => {
+    const storage = new MemoryStorage();
+    const now = new Date(2026, 7, 10, 12);
+    const state = createDefaultState(now);
+    const [firstSession, secondSession, thirdSession] = state.settings.strengthSessions;
+
+    state.dailyRecords = {
+      '2026-08-03': {
+        date: '2026-08-03',
+        steps: 8_000,
+        stepGoal: 7_000,
+      },
+      '2026-08-04': {
+        date: '2026-08-04',
+        steps: 6_000,
+        stepGoal: 7_000,
+      },
+      '2026-08-10': {
+        date: '2026-08-10',
+        steps: null,
+        stepGoal: 7_000,
+      },
+    };
+    state.weeklyRecords = {
+      '2026-08-03': {
+        weekStart: '2026-08-03',
+        strengthGoal: 3,
+        strengthSessions: [
+          { ...firstSession, completed: true },
+          { ...secondSession, completed: true },
+          { ...thirdSession, completed: false },
+        ],
+        hiitGoal: 1,
+        hiitCompleted: 1,
+      },
+      '2026-08-10': {
+        weekStart: '2026-08-10',
+        strengthGoal: 3,
+        strengthSessions: [
+          { ...firstSession, completed: false },
+          { ...secondSession, completed: false },
+          { ...thirdSession, completed: false },
+        ],
+        hiitGoal: 1,
+        hiitCompleted: 0,
+      },
+    };
+    await saveAppState(storage, state);
+
+    await render(<App storage={storage} now={() => now} />);
+    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
+    await fireEvent.press(screen.getByRole('button', { name: /Historial/ }));
+    await waitFor(() => expect(screen.getByText('Historial de semanas')).toBeTruthy());
+
+    const previousWeek = screen.getByTestId('history-week-summary-2026-08-03');
+    expect(within(previousWeek).getByText('1 / 2 días')).toBeTruthy();
+    expect(within(previousWeek).getByText('Media 7.000 pasos')).toBeTruthy();
+    expect(within(previousWeek).getByText('2 / 3 sesiones')).toBeTruthy();
+    expect(within(previousWeek).getByText('1 / 1 sesiones')).toBeTruthy();
+
+    const currentWeek = screen.getByTestId('history-week-summary-2026-08-10');
+    expect(within(currentWeek).getByText('Sin datos')).toBeTruthy();
   });
 
   it('shows understandable empty progress values without dividing by zero', async () => {

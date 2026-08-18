@@ -26,12 +26,14 @@ import {
   getHistoryDays,
   getHistoryFastings,
   getHistoryWeeks,
+  getWeeklyStepSummary,
 } from './storage/history';
 import {
   getProgressStatistics,
   type WeeklyGoalStatistics,
 } from './storage/statistics';
 import type { ExerciseMediaSelection } from './media/exerciseMedia';
+import type { WaterPermissionStatus } from './notifications/waterNotifications';
 import { useAppState } from './state/AppStateContext';
 import {
   DEFAULT_MUSCLE_GROUPS,
@@ -39,6 +41,7 @@ import {
   formatDateKey,
   getMondayDateKey,
   sortExercises,
+  type DailyRecord,
   type Exercise,
   type ExerciseCover,
   type MediaItem,
@@ -1867,16 +1870,39 @@ function hasWeeklyActivity(week: WeeklyRecord): boolean {
   );
 }
 
+function CompactMetric({
+  detail,
+  label,
+  testID,
+  value,
+}: {
+  detail: string;
+  label: string;
+  testID: string;
+  value: string;
+}) {
+  return (
+    <View style={styles.compactMetric} testID={testID}>
+      <Text style={styles.compactMetricLabel}>{label}</Text>
+      <Text style={styles.compactMetricValue}>{value}</Text>
+      <Text style={styles.compactMetricDetail}>{detail}</Text>
+    </View>
+  );
+}
+
 function WeeklyHistoryCard({
+  dailyRecords,
   week,
   currentWeekStart,
   muscleGroups,
 }: {
+  dailyRecords: Record<string, DailyRecord>;
   week: WeeklyRecord;
   currentWeekStart: string;
   muscleGroups: readonly MuscleGroup[];
 }) {
   const isCurrentWeek = week.weekStart === currentWeekStart;
+  const stepSummary = getWeeklyStepSummary(dailyRecords, week.weekStart);
   const completedStrength = week.strengthSessions.filter(
     (session) => session.completed,
   ).length;
@@ -1885,28 +1911,61 @@ function WeeklyHistoryCard({
     week.strengthGoal,
   );
   const hiitStatus = getStrengthProgressStatus(week.hiitCompleted, week.hiitGoal);
+  const stepsValue =
+    stepSummary.recordedDays === 0
+      ? 'Sin datos'
+      : `${formatNumber(stepSummary.completedDays)} / ${formatNumber(
+          stepSummary.recordedDays,
+        )} días`;
+  const stepsDetail =
+    stepSummary.averageSteps === null
+      ? 'Sin días registrados'
+      : `Media ${formatNumber(stepSummary.averageSteps)} pasos`;
 
   return (
     <View style={styles.historyCard} testID={`history-week-${week.weekStart}`}>
-      <Text
-        accessibilityRole="header"
-        style={styles.historyDate}
-        testID={`history-week-header-${week.weekStart}`}
-      >
-        {isCurrentWeek
-          ? `Semana actual · lunes ${formatHistoryDate(week.weekStart)}`
-          : `Semana del lunes ${formatHistoryDate(week.weekStart)}`}
-      </Text>
-      <Text style={styles.weekStatusText}>
-        {isCurrentWeek ? 'Semana actual (en curso)' : 'Semana finalizada'}
-      </Text>
-
-      <View style={styles.weeklyProgressBlock}>
-        <SectionLabel>Fuerza semanal</SectionLabel>
-        <Text style={styles.metricText}>
-          {completedStrength} / {week.strengthGoal} sesiones
+      <View style={styles.historyCardHeader}>
+        <View style={styles.historyCardHeaderCopy}>
+          <Text
+            accessibilityRole="header"
+            style={styles.historyDate}
+            testID={`history-week-header-${week.weekStart}`}
+          >
+            {isCurrentWeek
+              ? `Semana actual · lunes ${formatHistoryDate(week.weekStart)}`
+              : `Semana del lunes ${formatHistoryDate(week.weekStart)}`}
+          </Text>
+          <Text style={styles.weekStatusText}>
+            {isCurrentWeek ? 'Semana actual (en curso)' : 'Semana finalizada'}
+          </Text>
+        </View>
+        <Text style={styles.historyCardArrow} accessibilityLabel="Periodo local">
+          {isCurrentWeek ? 'HOY' : '—'}
         </Text>
-        <Text style={styles.supportText}>Estado: {strengthStatus}</Text>
+      </View>
+
+      <View
+        style={styles.historyMetricGrid}
+        testID={`history-week-summary-${week.weekStart}`}
+      >
+        <CompactMetric
+          detail={stepsDetail}
+          label="Pasos"
+          testID={`history-week-steps-${week.weekStart}`}
+          value={stepsValue}
+        />
+        <CompactMetric
+          detail={`Estado: ${strengthStatus}`}
+          label="Fuerza"
+          testID={`history-week-strength-${week.weekStart}`}
+          value={`${completedStrength} / ${week.strengthGoal} sesiones`}
+        />
+        <CompactMetric
+          detail={`Estado: ${hiitStatus}`}
+          label="HIIT"
+          testID={`history-week-hiit-${week.weekStart}`}
+          value={`${week.hiitCompleted} / ${week.hiitGoal} sesiones`}
+        />
       </View>
 
       <View style={styles.weeklySessionList}>
@@ -1915,28 +1974,62 @@ function WeeklyHistoryCard({
           const groups = getSessionGroups(session, muscleGroups);
           return (
             <View key={`${week.weekStart}-${session.id}`} style={styles.weeklySessionRow}>
-              <Text style={styles.listRowTitle}>{session.name}</Text>
+              <View style={styles.weeklySessionRowHeader}>
+                <Text style={styles.listRowTitle}>{session.name}</Text>
+                <Text style={styles.mutedText}>
+                  {session.completed ? 'Completada' : 'Pendiente'}
+                </Text>
+              </View>
               <Text style={styles.supportText}>
                 Grupos musculares:{' '}
                 {groups.length > 0
                   ? groups.map((group) => group.name).join(', ')
                   : 'Sin grupos disponibles'}
               </Text>
-              <Text style={styles.mutedText}>
-                {session.completed ? 'Completada' : 'Pendiente'}
-              </Text>
             </View>
           );
         })}
       </View>
+    </View>
+  );
+}
 
-      <View style={styles.weeklyProgressBlock}>
-        <SectionLabel>HIIT semanal</SectionLabel>
-        <Text style={styles.metricText}>
-          {week.hiitCompleted} / {week.hiitGoal} sesiones
+function HistoryDayCard({ day }: { day: DailyRecord }) {
+  const hasSteps = day.steps !== null;
+
+  return (
+    <View style={styles.historyCard} testID={`history-day-${day.date}`}>
+      <View style={styles.historyCardHeader}>
+        <Text
+          accessibilityRole="header"
+          style={styles.historyDate}
+          testID={`history-day-header-${day.date}`}
+        >
+          {formatHistoryDate(day.date)}
         </Text>
-        <Text style={styles.supportText}>Estado: {hiitStatus}</Text>
+        <Text style={styles.historyCardArrow}>{hasSteps ? 'REGISTRO' : 'SIN DATOS'}</Text>
       </View>
+      <View style={styles.historyDaySummary}>
+        <View style={styles.historyDayValueBlock}>
+          <Text style={styles.compactMetricLabel}>Pasos</Text>
+          <Text style={styles.historyDayValue}>
+            {hasSteps ? `${formatNumber(day.steps ?? 0)} pasos` : 'Sin pasos registrados'}
+          </Text>
+        </View>
+        <View style={styles.historyDayGoalBlock}>
+          <Text style={styles.compactMetricLabel}>Objetivo</Text>
+          <Text style={styles.historyDayGoal}>
+            Objetivo guardado: {formatNumber(day.stepGoal)} pasos
+          </Text>
+        </View>
+      </View>
+      <Text style={hasSteps ? styles.supportText : styles.mutedText}>
+        {hasSteps
+          ? day.steps !== null && day.steps >= day.stepGoal
+            ? 'Objetivo alcanzado'
+            : 'Objetivo no alcanzado'
+          : 'Estado: Sin datos'}
+      </Text>
     </View>
   );
 }
@@ -2029,7 +2122,7 @@ function ProgressSummary({
         )}`;
 
   return (
-    <Card>
+    <Card testID="history-progress-card">
       <Text style={styles.libraryTitle}>Progreso</Text>
       <View style={styles.statisticsBlock}>
         <SectionLabel>Pasos</SectionLabel>
@@ -2127,7 +2220,7 @@ export function HistoryScreen() {
     <Screen title="Historial">
       <ProgressSummary statistics={statistics} />
       {showWeeklyHistory ? (
-        <Card>
+        <Card testID="history-weeks-card">
           <Text style={styles.libraryTitle}>Historial de semanas</Text>
           <Text style={styles.emptyText}>
             Las semanas aparecen del lunes más reciente al más antiguo. La semana
@@ -2137,6 +2230,7 @@ export function HistoryScreen() {
             {historyWeeks.map((week) => (
               <WeeklyHistoryCard
                 currentWeekStart={currentWeekStart}
+                dailyRecords={state.dailyRecords}
                 key={week.weekStart}
                 muscleGroups={DEFAULT_MUSCLE_GROUPS}
                 week={week}
@@ -2146,7 +2240,7 @@ export function HistoryScreen() {
         </Card>
       ) : null}
 
-      <Card>
+      <Card testID="history-days-card">
         <Text style={styles.libraryTitle}>Historial de días</Text>
         <Text style={styles.emptyText}>
           Los registros aparecen del más reciente al más antiguo. Un día sin pasos
@@ -2154,43 +2248,12 @@ export function HistoryScreen() {
         </Text>
         <View style={styles.historyList}>
           {historyDays.map((day) => (
-            <View key={day.date} style={styles.historyCard}>
-              <Text
-                accessibilityRole="header"
-                style={styles.historyDate}
-                testID={`history-day-header-${day.date}`}
-              >
-                {formatHistoryDate(day.date)}
-              </Text>
-              {day.steps === null ? (
-                <>
-                  <Text style={styles.metricText}>Sin pasos registrados</Text>
-                  <Text style={styles.supportText}>
-                    Objetivo guardado: {formatNumber(day.stepGoal)} pasos
-                  </Text>
-                  <Text style={styles.mutedText}>Estado: Sin datos</Text>
-                </>
-              ) : (
-                <>
-                  <Text style={styles.metricText}>
-                    {formatNumber(day.steps)} pasos
-                  </Text>
-                  <Text style={styles.supportText}>
-                    Objetivo guardado: {formatNumber(day.stepGoal)} pasos
-                  </Text>
-                  <Text style={styles.supportText}>
-                    {day.steps >= day.stepGoal
-                      ? 'Objetivo alcanzado'
-                      : 'Objetivo no alcanzado'}
-                  </Text>
-                </>
-              )}
-            </View>
+            <HistoryDayCard day={day} key={day.date} />
           ))}
         </View>
       </Card>
 
-      <Card>
+      <Card testID="history-fasting-card">
         <SectionLabel>Ayunos</SectionLabel>
         {activeFasting && activeFastingDuration !== null ? (
           <View style={styles.historyCard}>
@@ -2228,6 +2291,44 @@ export function HistoryScreen() {
       </Card>
     </Screen>
   );
+}
+
+function SettingsSectionHeader({
+  children,
+  description,
+  marker,
+}: {
+  children: ReactNode;
+  description: string;
+  marker?: string;
+}) {
+  return (
+    <View style={styles.settingsSectionHeader}>
+      <View style={styles.settingsSectionHeaderCopy}>
+        {children}
+        <Text style={styles.settingsSectionDescription}>{description}</Text>
+      </View>
+      {marker ? <Text style={styles.settingsSectionMarker}>{marker}</Text> : null}
+    </View>
+  );
+}
+
+function getWaterPermissionLabel(
+  permission: WaterPermissionStatus | null,
+): string {
+  if (permission === 'granted') {
+    return 'Concedido';
+  }
+
+  if (permission === 'denied') {
+    return 'Denegado';
+  }
+
+  if (permission === 'undetermined') {
+    return 'Pendiente';
+  }
+
+  return 'Sin comprobar';
 }
 
 export function SettingsScreen() {
@@ -2486,8 +2587,39 @@ export function SettingsScreen() {
         Configura los valores locales de tu seguimiento. Ningún dato sale del teléfono.
       </Text>
 
-      <Card>
-        <SectionLabel>Objetivo diario de pasos</SectionLabel>
+      <Card testID="settings-overview-card">
+        <SettingsSectionHeader
+          description="Una vista rápida de los objetivos que se aplican a tus próximos registros."
+          marker="LOCAL"
+        >
+          <Text style={styles.libraryTitle}>Resumen de configuración</Text>
+        </SettingsSectionHeader>
+        <View style={styles.settingsSummaryGrid}>
+          <CompactMetric
+            detail="objetivo diario"
+            label="Pasos"
+            testID="settings-summary-steps"
+            value={formatNumber(currentGoal)}
+          />
+          <CompactMetric
+            detail="sesiones semanales"
+            label="Fuerza"
+            testID="settings-summary-strength"
+            value={formatNumber(strengthSessions.length)}
+          />
+          <CompactMetric
+            detail="sesiones semanales"
+            label="HIIT"
+            testID="settings-summary-hiit"
+            value={formatNumber(configuredHiitGoal)}
+          />
+        </View>
+      </Card>
+
+      <Card testID="settings-steps-card">
+        <SettingsSectionHeader description="Se guarda una instantánea por día para proteger tu historial.">
+          <SectionLabel>Objetivo diario de pasos</SectionLabel>
+        </SettingsSectionHeader>
         <Text style={styles.supportText}>
           Objetivo diario: {formatNumber(currentGoal)} pasos
         </Text>
@@ -2527,8 +2659,10 @@ export function SettingsScreen() {
         ) : null}
       </Card>
 
-      <Card>
-        <SectionLabel>Plan semanal de fuerza</SectionLabel>
+      <Card testID="settings-strength-card">
+        <SettingsSectionHeader description="Define las sesiones y los grupos del catálogo fijo de Ejercicios.">
+          <SectionLabel>Plan semanal de fuerza</SectionLabel>
+        </SettingsSectionHeader>
         <Text style={styles.metricText}>
           {state.settings.strengthSessions.length} sesiones
         </Text>
@@ -2592,8 +2726,10 @@ export function SettingsScreen() {
         ) : null}
       </Card>
 
-      <Card>
-        <SectionLabel>HIIT semanal</SectionLabel>
+      <Card testID="settings-hiit-card">
+        <SettingsSectionHeader description="Ajusta el objetivo que se aplicará al comenzar la próxima semana.">
+          <SectionLabel>HIIT semanal</SectionLabel>
+        </SettingsSectionHeader>
         <Text style={styles.supportText}>
           Objetivo semanal: {formatNumber(configuredHiitGoal)}{' '}
           {configuredHiitGoal === 1 ? 'sesión' : 'sesiones'}
@@ -2634,13 +2770,32 @@ export function SettingsScreen() {
         ) : null}
       </Card>
 
-      <Card>
-        <SectionLabel>Recordatorios de agua</SectionLabel>
-        <View style={styles.switchRow}>
-          <View style={styles.switchCopy}>
-            <Text style={styles.metricText}>
+      <Card testID="settings-water-card">
+        <SettingsSectionHeader description="Los avisos locales se activan, programan y cancelan únicamente desde aquí.">
+          <SectionLabel>Recordatorios de agua</SectionLabel>
+        </SettingsSectionHeader>
+        <View style={styles.waterStatusGrid} testID="water-status-grid">
+          <View style={styles.waterStatusItem}>
+            <Text style={styles.compactMetricLabel}>Estado</Text>
+            <Text
+              style={[
+                styles.waterStatusValue,
+                waterRemindersActive && styles.waterStatusValueActive,
+              ]}
+              testID="water-schedule-status"
+            >
               {waterRemindersActive ? 'Activos' : 'Inactivos'}
             </Text>
+          </View>
+          <View style={styles.waterStatusItem}>
+            <Text style={styles.compactMetricLabel}>Permiso</Text>
+            <Text style={styles.waterStatusValue} testID="water-permission-status">
+              {getWaterPermissionLabel(waterPermissionStatus)}
+            </Text>
+          </View>
+        </View>
+        <View style={styles.switchRow}>
+          <View style={styles.switchCopy}>
             <Text style={styles.supportText}>
               {waterPermissionStatus === 'denied'
                 ? 'Permiso de notificaciones denegado. Actívalo en Ajustes de Android para recibir avisos.'
@@ -2662,49 +2817,60 @@ export function SettingsScreen() {
         <Text style={styles.supportText}>
           Configurados de {waterStartTime} a {waterEndTime} cada {waterInterval} horas.
         </Text>
-        <TextInput
-          accessibilityLabel="Hora inicial de recordatorios de agua"
-          autoCapitalize="none"
-          onChangeText={(value) => {
-            setWaterStartTime(value);
-            setWaterValidationError(null);
-            setWaterSuccessMessage(null);
-          }}
-          placeholder="08:00"
-          placeholderTextColor={colors.textMuted}
-          style={styles.input}
-          testID="water-start-time-input"
-          value={waterStartTime}
-        />
-        <TextInput
-          accessibilityLabel="Hora final de recordatorios de agua"
-          autoCapitalize="none"
-          onChangeText={(value) => {
-            setWaterEndTime(value);
-            setWaterValidationError(null);
-            setWaterSuccessMessage(null);
-          }}
-          placeholder="22:00"
-          placeholderTextColor={colors.textMuted}
-          style={styles.input}
-          testID="water-end-time-input"
-          value={waterEndTime}
-        />
-        <TextInput
-          accessibilityLabel="Intervalo de recordatorios de agua"
-          autoCapitalize="none"
-          keyboardType="decimal-pad"
-          onChangeText={(value) => {
-            setWaterInterval(value);
-            setWaterValidationError(null);
-            setWaterSuccessMessage(null);
-          }}
-          placeholder="Intervalo en horas"
-          placeholderTextColor={colors.textMuted}
-          style={styles.input}
-          testID="water-interval-input"
-          value={waterInterval}
-        />
+        <View style={styles.waterInputsRow}>
+          <View style={styles.waterInputColumn}>
+            <Text style={styles.settingsInputLabel}>Desde</Text>
+            <TextInput
+              accessibilityLabel="Hora inicial de recordatorios de agua"
+              autoCapitalize="none"
+              onChangeText={(value) => {
+                setWaterStartTime(value);
+                setWaterValidationError(null);
+                setWaterSuccessMessage(null);
+              }}
+              placeholder="08:00"
+              placeholderTextColor={colors.textMuted}
+              style={styles.input}
+              testID="water-start-time-input"
+              value={waterStartTime}
+            />
+          </View>
+          <View style={styles.waterInputColumn}>
+            <Text style={styles.settingsInputLabel}>Hasta</Text>
+            <TextInput
+              accessibilityLabel="Hora final de recordatorios de agua"
+              autoCapitalize="none"
+              onChangeText={(value) => {
+                setWaterEndTime(value);
+                setWaterValidationError(null);
+                setWaterSuccessMessage(null);
+              }}
+              placeholder="22:00"
+              placeholderTextColor={colors.textMuted}
+              style={styles.input}
+              testID="water-end-time-input"
+              value={waterEndTime}
+            />
+          </View>
+        </View>
+        <View style={styles.waterInputColumn}>
+          <Text style={styles.settingsInputLabel}>Intervalo en horas</Text>
+          <TextInput
+            accessibilityLabel="Intervalo de recordatorios de agua"
+            autoCapitalize="none"
+            keyboardType="decimal-pad"
+            onChangeText={(value) => {
+              setWaterInterval(value);
+              setWaterValidationError(null);
+              setWaterSuccessMessage(null);
+            }}
+            placeholder="Intervalo en horas"
+            placeholderTextColor={colors.textMuted}
+            style={styles.input}
+            testID="water-interval-input"
+            value={waterInterval}
+          />
+        </View>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Guardar recordatorios de agua"
@@ -2723,11 +2889,17 @@ export function SettingsScreen() {
         ) : null}
       </Card>
 
-      <Card>
-        <SectionLabel>Grupos musculares iniciales</SectionLabel>
-        <Text style={styles.supportText}>
-          {DEFAULT_MUSCLE_GROUPS.map((group) => group.name).join(' · ')}
-        </Text>
+      <Card testID="settings-exercise-catalog-card">
+        <SettingsSectionHeader description="Estos grupos son parte del catálogo y no se gestionan desde Ajustes.">
+          <SectionLabel>Catálogo fijo de Ejercicios</SectionLabel>
+        </SettingsSectionHeader>
+        <View style={styles.settingsCatalogList}>
+          {DEFAULT_MUSCLE_GROUPS.map((group) => (
+            <View key={group.id} style={styles.settingsCatalogChip}>
+              <Text style={styles.settingsCatalogChipText}>{group.name}</Text>
+            </View>
+          ))}
+        </View>
       </Card>
 
       <Text style={styles.storageNote}>
@@ -2813,6 +2985,109 @@ const styles = StyleSheet.create({
     shadowOffset: { height: 4, width: 0 },
     shadowOpacity: 0.2,
     shadowRadius: 8,
+  },
+  settingsSectionHeader: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    gap: 10,
+  },
+  settingsSectionHeaderCopy: {
+    flex: 1,
+    gap: 4,
+  },
+  settingsSectionDescription: {
+    color: colors.textSecondary,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  settingsSectionMarker: {
+    color: colors.accent,
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+  },
+  settingsSummaryGrid: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  compactMetric: {
+    backgroundColor: colors.surfaceSunken,
+    borderColor: colors.border,
+    borderRadius: 10,
+    borderWidth: 1,
+    flex: 1,
+    gap: 3,
+    minHeight: 76,
+    padding: 8,
+  },
+  compactMetricLabel: {
+    color: colors.textMuted,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  compactMetricValue: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  compactMetricDetail: {
+    color: colors.textSecondary,
+    fontSize: 11,
+    lineHeight: 14,
+  },
+  waterStatusGrid: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  waterStatusItem: {
+    backgroundColor: colors.surfaceSunken,
+    borderColor: colors.border,
+    borderRadius: 10,
+    borderWidth: 1,
+    flex: 1,
+    gap: 3,
+    padding: 10,
+  },
+  waterStatusValue: {
+    color: colors.text,
+    fontSize: 17,
+    fontWeight: '800',
+  },
+  waterStatusValueActive: {
+    color: colors.accent,
+  },
+  waterInputsRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  waterInputColumn: {
+    flex: 1,
+    gap: 5,
+  },
+  settingsInputLabel: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  settingsCatalogList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  settingsCatalogChip: {
+    backgroundColor: colors.accentSoft,
+    borderColor: colors.accentBorder,
+    borderRadius: 99,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  settingsCatalogChipText: {
+    color: colors.accent,
+    fontSize: 13,
+    fontWeight: '700',
   },
   dashboardProgressRow: {
     alignItems: 'center',
@@ -2969,24 +3244,63 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   historyList: {
-    gap: 10,
+    gap: 8,
     marginTop: 4,
   },
   historyCard: {
     backgroundColor: colors.surfaceRaised,
     borderColor: colors.borderStrong,
-    borderRadius: 12,
+    borderRadius: 14,
     borderWidth: 1,
-    gap: 6,
-    padding: 12,
+    gap: 10,
+    padding: 14,
+  },
+  historyCardHeader: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    gap: 10,
+  },
+  historyCardHeaderCopy: {
+    flex: 1,
+    gap: 3,
+  },
+  historyCardArrow: {
+    color: colors.accent,
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.8,
   },
   weekStatusText: {
     color: colors.accent,
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: '800',
   },
-  weeklyProgressBlock: {
+  historyMetricGrid: {
+    flexDirection: 'row',
     gap: 6,
+  },
+  historyDaySummary: {
+    alignItems: 'flex-end',
+    flexDirection: 'row',
+    gap: 12,
+  },
+  historyDayValueBlock: {
+    flex: 1,
+    gap: 3,
+  },
+  historyDayValue: {
+    color: colors.text,
+    fontSize: 20,
+    fontWeight: '800',
+  },
+  historyDayGoalBlock: {
+    flex: 1,
+    gap: 3,
+  },
+  historyDayGoal: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    lineHeight: 18,
   },
   statisticsBlock: {
     gap: 6,
@@ -3002,6 +3316,12 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     gap: 4,
     padding: 10,
+  },
+  weeklySessionRowHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'space-between',
   },
   historyDate: {
     color: colors.text,
