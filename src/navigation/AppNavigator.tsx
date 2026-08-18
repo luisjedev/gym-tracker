@@ -1,6 +1,9 @@
-import { NavigationContainer } from '@react-navigation/native';
+import {
+  DarkTheme,
+  NavigationContainer,
+  type Theme,
+} from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { StatusBar } from 'expo-status-bar';
 
 import {
   ExercisesScreen,
@@ -11,9 +14,22 @@ import {
   StorageErrorScreen,
 } from '../screens';
 import { useAppState } from '../state/AppStateContext';
+import { colors } from '../theme';
 import type { RootTabParamList } from './types';
 
 const Tab = createBottomTabNavigator<RootTabParamList>();
+const navigationTheme: Theme = {
+  ...DarkTheme,
+  colors: {
+    ...DarkTheme.colors,
+    background: colors.background,
+    border: colors.border,
+    card: colors.surface,
+    notification: colors.danger,
+    primary: colors.accent,
+    text: colors.text,
+  },
+};
 
 export default function AppNavigator() {
   const { status, retry } = useAppState();
@@ -27,23 +43,30 @@ export default function AppNavigator() {
   }
 
   return (
-    <NavigationContainer>
+    <NavigationContainer theme={navigationTheme}>
       <Tab.Navigator
         initialRouteName="Home"
         screenOptions={{
           headerShown: false,
-          tabBarActiveTintColor: '#287A4D',
-          tabBarInactiveTintColor: '#718078',
+          tabBarActiveBackgroundColor: colors.surfaceRaised,
+          tabBarActiveTintColor: colors.accent,
+          tabBarInactiveTintColor: colors.textMuted,
           tabBarLabelStyle: {
             fontSize: 12,
-            fontWeight: '700',
+            fontWeight: '800',
+          },
+          tabBarItemStyle: {
+            borderRadius: 14,
+            marginHorizontal: 4,
+            marginVertical: 6,
           },
           tabBarStyle: {
-            backgroundColor: '#FFFFFF',
-            borderTopColor: '#DCE8DF',
-            height: 68,
-            paddingBottom: 8,
-            paddingTop: 6,
+            backgroundColor: colors.surface,
+            borderTopColor: colors.border,
+            borderTopWidth: 1,
+            height: 74,
+            paddingBottom: 6,
+            paddingTop: 4,
           },
         }}
       >
@@ -68,7 +91,6 @@ export default function AppNavigator() {
           options={{ tabBarLabel: 'Ajustes' }}
         />
       </Tab.Navigator>
-      <StatusBar style="dark" />
     </NavigationContainer>
   );
 }

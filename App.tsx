@@ -1,3 +1,5 @@
+import { StatusBar } from 'expo-status-bar';
+
 import AppNavigator from './src/navigation/AppNavigator';
 import {
   AppStateProvider,
@@ -17,7 +19,10 @@ export default function App({ media, storage, now, notifications }: AppProps = {
       notifications={notifications}
       storage={storage}
     >
-      <AppNavigator />
+      <>
+        <StatusBar style="light" />
+        <AppNavigator />
+      </>
     </AppStateProvider>
   );
 }

@@ -1,6 +1,8 @@
 import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 
+import { colors } from '../theme';
+
 export const WATER_NOTIFICATION_CHANNEL_ID = 'water-reminders';
 export const WATER_NOTIFICATION_DATA_TYPE = 'gym-tracker-water-reminder';
 
@@ -131,7 +133,7 @@ export const defaultWaterNotificationAdapter: WaterNotificationAdapter = {
       name: 'Recordatorios de agua',
       importance: Notifications.AndroidImportance.DEFAULT,
       vibrationPattern: [0, 250],
-      lightColor: '#287A4D',
+      lightColor: colors.accent,
     });
   },
 

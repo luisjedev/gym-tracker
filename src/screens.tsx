@@ -40,6 +40,7 @@ import {
   type WeeklyRecord,
 } from './storage/schema';
 import type { RootTabParamList } from './navigation/types';
+import { colors } from './theme';
 
 export function formatNumber(value: number): string {
   return String(value).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
@@ -94,7 +95,7 @@ function formatHistoryDate(dateKey: string): string {
 
 function Screen({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} testID="app-screen">
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={styles.appName}>GYM TRACKER</Text>
         <Text style={styles.screenTitle}>{title}</Text>
@@ -104,8 +105,18 @@ function Screen({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-function Card({ children }: { children: ReactNode }) {
-  return <View style={styles.card}>{children}</View>;
+function Card({
+  children,
+  testID,
+}: {
+  children: ReactNode;
+  testID?: string;
+}) {
+  return (
+    <View style={styles.card} testID={testID}>
+      {children}
+    </View>
+  );
 }
 
 function SectionLabel({ children }: { children: ReactNode }) {
@@ -364,7 +375,7 @@ export function HomeScreen() {
     <Screen title="Inicio">
       <Text style={styles.introText}>Tu resumen de hoy y de esta semana.</Text>
 
-      <Card>
+      <Card testID="home-card">
         <SectionLabel>Pasos de hoy</SectionLabel>
         <Text style={styles.metricText}>
           {formatNumber(currentSteps)} / {formatNumber(stepGoal)} pasos
@@ -391,6 +402,7 @@ export function HomeScreen() {
             setStepsValidationError(null);
           }}
           placeholder="Número de pasos"
+          placeholderTextColor={colors.textMuted}
           style={styles.input}
           testID="daily-steps-input"
           value={stepsInput}
@@ -419,7 +431,7 @@ export function HomeScreen() {
         <SectionLabel>Ayuno</SectionLabel>
         {activeFasting && activeFastingDuration !== null ? (
           <>
-            <Text style={styles.metricText}>Ayuno activo</Text>
+            <Text style={[styles.metricText, styles.activeMetricText]}>Ayuno activo</Text>
             <Text style={styles.supportText}>
               Hora de inicio: {formatTimestamp(activeFasting.startedAt)}
             </Text>
@@ -1037,6 +1049,7 @@ export function ExercisesScreen() {
                 accessibilityLabel="Nombre del ejercicio a editar"
                 autoCapitalize="words"
                 onChangeText={setExerciseEditName}
+                placeholderTextColor={colors.textMuted}
                 style={styles.input}
                 testID="exercise-edit-name-input"
                 value={exerciseEditName}
@@ -1045,6 +1058,7 @@ export function ExercisesScreen() {
                 accessibilityLabel="Descripción del ejercicio a editar"
                 multiline
                 onChangeText={setExerciseEditDescription}
+                placeholderTextColor={colors.textMuted}
                 style={[styles.input, styles.multilineInput]}
                 testID="exercise-edit-description-input"
                 value={exerciseEditDescription}
@@ -1246,6 +1260,7 @@ export function ExercisesScreen() {
               autoCapitalize="words"
               onChangeText={setGroupName}
               placeholder="Ej.: Core"
+              placeholderTextColor={colors.textMuted}
               style={styles.input}
               testID="muscle-group-name-input"
               value={groupName}
@@ -1339,6 +1354,7 @@ export function ExercisesScreen() {
               accessibilityLabel="Nombre del grupo muscular a editar"
               autoCapitalize="words"
               onChangeText={setGroupEditName}
+              placeholderTextColor={colors.textMuted}
               style={styles.input}
               testID="muscle-group-edit-name-input"
               value={groupEditName}
@@ -1399,6 +1415,7 @@ export function ExercisesScreen() {
               autoCapitalize="words"
               onChangeText={setExerciseName}
               placeholder="Ej.: Press banca"
+              placeholderTextColor={colors.textMuted}
               style={styles.input}
               testID="exercise-name-input"
               value={exerciseName}
@@ -1408,6 +1425,7 @@ export function ExercisesScreen() {
               multiline
               onChangeText={setExerciseDescription}
               placeholder="Descripción opcional"
+              placeholderTextColor={colors.textMuted}
               style={[styles.input, styles.multilineInput]}
               testID="exercise-description-input"
               value={exerciseDescription}
@@ -1841,7 +1859,7 @@ export function HistoryScreen() {
         <SectionLabel>Ayunos</SectionLabel>
         {activeFasting && activeFastingDuration !== null ? (
           <View style={styles.historyCard}>
-            <Text style={styles.metricText}>Ayuno activo</Text>
+            <Text style={[styles.metricText, styles.activeMetricText]}>Ayuno activo</Text>
             <Text style={styles.supportText}>
               Inicio: {formatTimestamp(activeFasting.startedAt)}
             </Text>
@@ -2144,6 +2162,7 @@ export function SettingsScreen() {
           keyboardType="number-pad"
           onChangeText={setGoal}
           placeholder="Número de pasos"
+          placeholderTextColor={colors.textMuted}
           style={styles.input}
           testID="daily-step-goal-input"
           value={goal}
@@ -2187,6 +2206,7 @@ export function SettingsScreen() {
           keyboardType="number-pad"
           onChangeText={handleStrengthSessionCountChange}
           placeholder="Número de sesiones"
+          placeholderTextColor={colors.textMuted}
           style={styles.input}
           testID="strength-session-count-input"
           value={strengthSessionCount}
@@ -2253,6 +2273,7 @@ export function SettingsScreen() {
             setHeatSuccessMessage(null);
           }}
           placeholder="Número de sesiones HEAT"
+          placeholderTextColor={colors.textMuted}
           style={styles.input}
           testID="heat-weekly-goal-input"
           value={heatGoal}
@@ -2297,6 +2318,8 @@ export function SettingsScreen() {
             accessibilityLabel="Activar recordatorios de agua"
             accessibilityRole="switch"
             onValueChange={(enabled) => void handleWaterToggle(enabled)}
+            thumbColor={colors.text}
+            trackColor={{ false: colors.neutralSurface, true: colors.accent }}
             testID="water-enabled-switch"
             value={state.settings.water.enabled}
           />
@@ -2313,6 +2336,7 @@ export function SettingsScreen() {
             setWaterSuccessMessage(null);
           }}
           placeholder="08:00"
+          placeholderTextColor={colors.textMuted}
           style={styles.input}
           testID="water-start-time-input"
           value={waterStartTime}
@@ -2326,6 +2350,7 @@ export function SettingsScreen() {
             setWaterSuccessMessage(null);
           }}
           placeholder="22:00"
+          placeholderTextColor={colors.textMuted}
           style={styles.input}
           testID="water-end-time-input"
           value={waterEndTime}
@@ -2340,6 +2365,7 @@ export function SettingsScreen() {
             setWaterSuccessMessage(null);
           }}
           placeholder="Intervalo en horas"
+          placeholderTextColor={colors.textMuted}
           style={styles.input}
           testID="water-interval-input"
           value={waterInterval}
@@ -2378,7 +2404,7 @@ export function SettingsScreen() {
 
 export function LoadingScreen() {
   return (
-    <View style={styles.centeredScreen}>
+    <View style={styles.centeredScreen} testID="loading-screen">
       <Text style={styles.appName}>GYM TRACKER</Text>
       <Text style={styles.screenTitle}>Cargando tus datos…</Text>
       <Text style={styles.supportText}>La primera carga puede tardar un momento.</Text>
@@ -2388,7 +2414,7 @@ export function LoadingScreen() {
 
 export function StorageErrorScreen({ onRetry }: { onRetry: () => void }) {
   return (
-    <View style={styles.centeredScreen}>
+    <View style={styles.centeredScreen} testID="storage-error-screen">
       <Text style={styles.appName}>GYM TRACKER</Text>
       <Text style={styles.screenTitle}>No se pudieron cargar tus datos</Text>
       <Text style={styles.errorText}>
@@ -2409,7 +2435,7 @@ export function StorageErrorScreen({ onRetry }: { onRetry: () => void }) {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#F4F7F5',
+    backgroundColor: colors.background,
   },
   content: {
     gap: 16,
@@ -2422,59 +2448,69 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 12,
     padding: 24,
-    backgroundColor: '#F4F7F5',
+    backgroundColor: colors.background,
   },
   appName: {
-    color: '#287A4D',
+    color: colors.accent,
     fontSize: 12,
     fontWeight: '800',
     letterSpacing: 1.8,
   },
   screenTitle: {
-    color: '#14251B',
+    color: colors.text,
     fontSize: 30,
     fontWeight: '800',
   },
   introText: {
-    color: '#526158',
+    color: colors.textSecondary,
     fontSize: 16,
     lineHeight: 23,
   },
   card: {
     gap: 10,
     padding: 18,
+    borderColor: colors.border,
     borderRadius: 18,
-    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    backgroundColor: colors.surface,
+    elevation: 2,
+    shadowColor: '#000000',
+    shadowOffset: { height: 4, width: 0 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
   },
   sectionLabel: {
-    color: '#287A4D',
+    color: colors.accent,
     fontSize: 13,
     fontWeight: '800',
     letterSpacing: 0.8,
     textTransform: 'uppercase',
   },
   libraryTitle: {
-    color: '#14251B',
+    color: colors.text,
     fontSize: 21,
     fontWeight: '700',
   },
   metricText: {
-    color: '#14251B',
+    color: colors.text,
     fontSize: 25,
     fontWeight: '800',
   },
+  activeMetricText: {
+    color: colors.warning,
+  },
   supportText: {
-    color: '#526158',
+    color: colors.textSecondary,
     fontSize: 16,
     lineHeight: 23,
   },
   emptyTitle: {
-    color: '#14251B',
+    color: colors.text,
     fontSize: 21,
     fontWeight: '700',
   },
   emptyText: {
-    color: '#526158',
+    color: colors.textSecondary,
     fontSize: 15,
     lineHeight: 22,
   },
@@ -2487,14 +2523,15 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   historyCard: {
-    borderColor: '#DCE8DF',
+    backgroundColor: colors.surfaceRaised,
+    borderColor: colors.borderStrong,
     borderRadius: 12,
     borderWidth: 1,
     gap: 6,
     padding: 12,
   },
   weekStatusText: {
-    color: '#287A4D',
+    color: colors.accent,
     fontSize: 15,
     fontWeight: '800',
   },
@@ -2511,26 +2548,29 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   weeklySessionRow: {
-    backgroundColor: '#F4F7F5',
+    backgroundColor: colors.surfaceSunken,
     borderRadius: 10,
     gap: 4,
     padding: 10,
   },
   historyDate: {
-    color: '#14251B',
+    color: colors.text,
     fontSize: 18,
     fontWeight: '800',
   },
   strengthSessionRow: {
-    borderColor: '#DCE8DF',
+    backgroundColor: colors.surfaceRaised,
+    borderColor: colors.borderStrong,
     borderRadius: 12,
     borderWidth: 1,
     gap: 8,
     padding: 12,
   },
   nextSessionBlock: {
-    backgroundColor: '#F4F7F5',
+    backgroundColor: colors.surfaceSunken,
+    borderColor: colors.border,
     borderRadius: 12,
+    borderWidth: 1,
     gap: 4,
     padding: 12,
   },
@@ -2540,20 +2580,21 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   sessionGroupChip: {
-    backgroundColor: '#E9F4EC',
-    borderColor: '#CDE3D4',
+    backgroundColor: colors.accentSoft,
+    borderColor: colors.accentBorder,
     borderRadius: 99,
     borderWidth: 1,
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
   sessionGroupChipText: {
-    color: '#287A4D',
+    color: colors.accent,
     fontSize: 14,
     fontWeight: '700',
   },
   strengthDraftBlock: {
-    borderColor: '#DCE8DF',
+    backgroundColor: colors.surfaceRaised,
+    borderColor: colors.borderStrong,
     borderRadius: 12,
     borderWidth: 1,
     gap: 8,
@@ -2570,7 +2611,8 @@ const styles = StyleSheet.create({
   },
   mediaPreviewCard: {
     alignItems: 'center',
-    borderColor: '#DCE8DF',
+    backgroundColor: colors.surfaceRaised,
+    borderColor: colors.borderStrong,
     borderRadius: 12,
     borderWidth: 1,
     gap: 6,
@@ -2591,29 +2633,29 @@ const styles = StyleSheet.create({
   },
   videoThumbnail: {
     alignItems: 'center',
-    backgroundColor: '#E9F4EC',
+    backgroundColor: colors.accentSoft,
     flex: 1,
     justifyContent: 'center',
     width: '100%',
   },
   videoThumbnailIcon: {
-    color: '#287A4D',
+    color: colors.accent,
     fontSize: 28,
     fontWeight: '800',
   },
   videoThumbnailText: {
-    color: '#287A4D',
+    color: colors.accent,
     fontSize: 14,
     fontWeight: '700',
   },
   mediaTypeText: {
-    color: '#526158',
+    color: colors.textSecondary,
     fontSize: 14,
     fontWeight: '700',
   },
   missingMediaState: {
     alignItems: 'center',
-    backgroundColor: '#F4F7F5',
+    backgroundColor: colors.surfaceSunken,
     flex: 1,
     gap: 4,
     justifyContent: 'center',
@@ -2621,28 +2663,30 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   missingMediaTitle: {
-    color: '#7A271A',
+    color: colors.danger,
     fontSize: 13,
     fontWeight: '800',
     textAlign: 'center',
   },
   missingMediaText: {
-    color: '#526158',
+    color: colors.textSecondary,
     fontSize: 12,
     lineHeight: 16,
     textAlign: 'center',
   },
   mediaViewerBackdrop: {
     alignItems: 'center',
-    backgroundColor: 'rgba(20, 37, 27, 0.86)',
+    backgroundColor: colors.overlay,
     flex: 1,
     justifyContent: 'center',
     padding: 20,
   },
   mediaViewerCard: {
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.surface,
+    borderColor: colors.borderStrong,
     borderRadius: 18,
+    borderWidth: 1,
     gap: 14,
     maxHeight: '90%',
     padding: 14,
@@ -2658,7 +2702,8 @@ const styles = StyleSheet.create({
   },
   exerciseRow: {
     alignItems: 'center',
-    borderColor: '#DCE8DF',
+    backgroundColor: colors.surfaceRaised,
+    borderColor: colors.borderStrong,
     borderRadius: 12,
     borderWidth: 1,
     flexDirection: 'row',
@@ -2685,12 +2730,12 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   listRowTitle: {
-    color: '#14251B',
+    color: colors.text,
     fontSize: 16,
     fontWeight: '700',
   },
   mutedText: {
-    color: '#718078',
+    color: colors.textMuted,
     fontSize: 14,
   },
   statusPill: {
@@ -2701,13 +2746,13 @@ const styles = StyleSheet.create({
     width: 32,
   },
   statusPillDone: {
-    backgroundColor: '#D9F3E2',
+    backgroundColor: colors.successSurface,
   },
   statusPillPending: {
-    backgroundColor: '#E9EFEB',
+    backgroundColor: colors.neutralSurface,
   },
   statusPillText: {
-    color: '#287A4D',
+    color: colors.accent,
     fontSize: 17,
     fontWeight: '800',
   },
@@ -2730,25 +2775,27 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   groupChip: {
-    borderColor: '#CDE3D4',
+    backgroundColor: colors.surfaceSunken,
+    borderColor: colors.accentBorder,
     borderRadius: 99,
     borderWidth: 1,
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
   groupChipSelected: {
-    backgroundColor: '#D9F3E2',
+    backgroundColor: colors.accentSoft,
   },
   groupChipText: {
-    color: '#287A4D',
+    color: colors.accent,
     fontSize: 15,
     fontWeight: '700',
   },
   input: {
-    borderColor: '#B8C9BD',
+    backgroundColor: colors.surfaceSunken,
+    borderColor: colors.borderStrong,
     borderRadius: 12,
     borderWidth: 1,
-    color: '#14251B',
+    color: colors.text,
     fontSize: 18,
     minHeight: 52,
     paddingHorizontal: 14,
@@ -2760,8 +2807,8 @@ const styles = StyleSheet.create({
   },
   secondaryButton: {
     alignItems: 'center',
-    backgroundColor: '#E9F4EC',
-    borderColor: '#CDE3D4',
+    backgroundColor: colors.accentSoft,
+    borderColor: colors.accentBorder,
     borderRadius: 12,
     borderWidth: 1,
     justifyContent: 'center',
@@ -2769,38 +2816,40 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
   },
   secondaryButtonText: {
-    color: '#287A4D',
+    color: colors.accent,
     fontSize: 17,
     fontWeight: '800',
   },
   disabledButton: {
-    backgroundColor: '#A7B8AD',
+    backgroundColor: colors.neutralSurface,
+    borderColor: colors.border,
+    borderWidth: 1,
   },
   disabledSecondaryButton: {
-    backgroundColor: '#F0F3F1',
-    borderColor: '#DCE8DF',
+    backgroundColor: colors.surfaceSunken,
+    borderColor: colors.border,
   },
   smallActionButton: {
-    borderColor: '#CDE3D4',
+    borderColor: colors.accentBorder,
     borderRadius: 8,
     borderWidth: 1,
     paddingHorizontal: 8,
     paddingVertical: 6,
   },
   smallActionButtonText: {
-    color: '#287A4D',
+    color: colors.accent,
     fontSize: 13,
     fontWeight: '700',
   },
   smallDangerButton: {
-    borderColor: '#F3C4C0',
+    borderColor: colors.dangerSurface,
     borderRadius: 8,
     borderWidth: 1,
     paddingHorizontal: 8,
     paddingVertical: 6,
   },
   smallDangerButtonText: {
-    color: '#B42318',
+    color: colors.danger,
     fontSize: 13,
     fontWeight: '700',
   },
@@ -2811,45 +2860,50 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
   },
   cancelButtonText: {
-    color: '#526158',
+    color: colors.textSecondary,
     fontSize: 16,
     fontWeight: '700',
   },
   primaryButton: {
     alignItems: 'center',
-    backgroundColor: '#287A4D',
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
     borderRadius: 12,
+    borderWidth: 1,
     justifyContent: 'center',
     minHeight: 52,
     paddingHorizontal: 18,
   },
   primaryButtonText: {
-    color: '#FFFFFF',
+    color: colors.accentText,
     fontSize: 17,
     fontWeight: '800',
   },
   dangerButton: {
     alignItems: 'center',
-    backgroundColor: '#B42318',
+    backgroundColor: colors.dangerButton,
+    borderColor: colors.dangerButton,
     borderRadius: 12,
+    borderWidth: 1,
     justifyContent: 'center',
     minHeight: 52,
     paddingHorizontal: 18,
   },
   dangerButtonText: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 17,
     fontWeight: '800',
   },
   confirmationBlock: {
-    borderColor: '#F3C4C0',
+    backgroundColor: colors.dangerSurface,
+    borderColor: colors.danger,
     borderRadius: 12,
     borderWidth: 1,
     gap: 8,
     padding: 12,
   },
   confirmationTitle: {
-    color: '#7A271A',
+    color: colors.danger,
     fontSize: 17,
     fontWeight: '800',
   },
@@ -2857,18 +2911,18 @@ const styles = StyleSheet.create({
     opacity: 0.75,
   },
   successText: {
-    color: '#287A4D',
+    color: colors.accent,
     fontSize: 15,
     fontWeight: '700',
   },
   errorText: {
-    color: '#B42318',
+    color: colors.danger,
     fontSize: 15,
     lineHeight: 22,
     textAlign: 'center',
   },
   storageNote: {
-    color: '#718078',
+    color: colors.textMuted,
     fontSize: 13,
     textAlign: 'center',
   },
