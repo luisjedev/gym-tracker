@@ -1176,14 +1176,6 @@ export function AppStateProvider({
   }, [load]);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setCurrentTime(now());
-    }, 60_000);
-
-    return () => clearInterval(interval);
-  }, [now]);
-
-  useEffect(() => {
     const subscription = ReactNativeAppState.addEventListener(
       'change',
       (nextState) => {

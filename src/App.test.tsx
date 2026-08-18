@@ -1,10 +1,11 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import { AppState } from 'react-native';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
+import { AppState, StyleSheet } from 'react-native';
 
 import App from '../App';
 import type { WaterNotificationAdapter, WaterPermissionStatus, WaterReminderTime } from './notifications/waterNotifications';
 import type { StorageAdapter } from './storage/appStorage';
 import { createDefaultState, saveAppState } from './storage/schema';
+import { colors } from './theme';
 
 class MemoryStorage implements StorageAdapter {
   private readonly values = new Map<string, string>();
@@ -1001,7 +1002,120 @@ describe('Gym Tracker app flow', () => {
     await rendered.unmount();
   });
 
-  it('recalculates the active fasting duration after the clock advances', async () => {
+  it('shows seven fasting circles from Monday to Sunday with the longest start-day fast', async () => {
+    const storage = new MemoryStorage();
+    const now = new Date(2026, 7, 21, 12, 0, 0);
+    const state = createDefaultState(now);
+
+    state.fasting.completed = [
+      {
+        id: 'monday-long',
+        startedAt: new Date(2026, 7, 17, 20, 0, 0).toISOString(),
+        endedAt: new Date(2026, 7, 18, 12, 1, 0).toISOString(),
+        durationMinutes: 961,
+      },
+      {
+        id: 'monday-short',
+        startedAt: new Date(2026, 7, 17, 8, 0, 0).toISOString(),
+        endedAt: new Date(2026, 7, 17, 23, 0, 0).toISOString(),
+        durationMinutes: 900,
+      },
+      {
+        id: 'tuesday-cross-midnight',
+        startedAt: new Date(2026, 7, 18, 20, 0, 0).toISOString(),
+        endedAt: new Date(2026, 7, 19, 11, 0, 0).toISOString(),
+        durationMinutes: 900,
+      },
+    ];
+    await saveAppState(storage, state);
+
+    await render(<App now={() => now} storage={storage} />);
+    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
+
+    const week = screen.getByTestId('home-fasting-week');
+    expect(within(week).getByText('Lun')).toBeTruthy();
+    expect(within(week).getByText('Mar')).toBeTruthy();
+    expect(within(week).getByText('Mié')).toBeTruthy();
+    expect(within(week).getByText('Jue')).toBeTruthy();
+    expect(within(week).getByText('Vie')).toBeTruthy();
+    expect(within(week).getByText('Sáb')).toBeTruthy();
+    expect(within(week).getByText('Dom')).toBeTruthy();
+
+    const mondayCircle = screen.getByTestId('home-fasting-day-2026-08-17-circle');
+    const tuesdayCircle = screen.getByTestId('home-fasting-day-2026-08-18-circle');
+    const wednesdayCircle = screen.getByTestId('home-fasting-day-2026-08-19-circle');
+    const fridayCircle = screen.getByTestId('home-fasting-day-2026-08-21-circle');
+
+    expect(mondayCircle.props.accessibilityLabel).toBe(
+      'Lunes: 16 horas, más de 15 horas',
+    );
+    expect(tuesdayCircle.props.accessibilityLabel).toBe(
+      'Martes: 15 horas, 15 horas o menos o sin ayuno válido',
+    );
+    expect(wednesdayCircle.props.accessibilityLabel).toBe(
+      'Miércoles: 0 horas, 15 horas o menos o sin ayuno válido',
+    );
+    expect(fridayCircle.props.accessibilityLabel).toBe(
+      'Viernes: 0 horas, sin ayuno iniciado',
+    );
+    expect(StyleSheet.flatten(mondayCircle.props.style)).toMatchObject({
+      borderColor: colors.accent,
+    });
+    expect(StyleSheet.flatten(tuesdayCircle.props.style)).toMatchObject({
+      borderColor: colors.danger,
+    });
+    expect(StyleSheet.flatten(wednesdayCircle.props.style)).toMatchObject({
+      borderColor: colors.danger,
+    });
+    expect(StyleSheet.flatten(fridayCircle.props.style)).toMatchObject({
+      borderColor: colors.border,
+    });
+  });
+
+  it('shows the active border, eating guidance, and the result after finishing a fast', async () => {
+    const storage = new MemoryStorage();
+    let currentNow = new Date(2026, 7, 17, 20, 0, 0);
+    const now = () => currentNow;
+
+    let rendered = await render(<App now={now} storage={storage} />);
+    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
+    await fireEvent.press(screen.getByRole('button', { name: 'Iniciar ayuno' }));
+    await waitFor(() => expect(screen.getByText('Ayuno activo')).toBeTruthy());
+
+    expect(
+      screen.getByText('Primera hora válida para comer: 18/08/2026, 11:01'),
+    ).toBeTruthy();
+    expect(screen.getByText('Aún no puedes comer')).toBeTruthy();
+    expect(
+      StyleSheet.flatten(
+        screen.getByTestId('home-fasting-day-2026-08-17-circle').props.style,
+      ),
+    ).toMatchObject({ borderColor: colors.warning });
+
+    currentNow = new Date(2026, 7, 18, 11, 2, 0);
+    await rendered.unmount();
+    rendered = await render(<App now={now} storage={storage} />);
+    await waitFor(() => expect(screen.getByText('Ya puedes comer')).toBeTruthy());
+
+    await fireEvent.press(screen.getByRole('button', { name: 'Finalizar ayuno' }));
+    await waitFor(() => expect(screen.getByText('No hay un ayuno activo.')).toBeTruthy());
+    expect(
+      StyleSheet.flatten(
+        screen.getByTestId('home-fasting-day-2026-08-17-circle').props.style,
+      ),
+    ).toMatchObject({ borderColor: colors.accent });
+
+    await rendered.unmount();
+    await render(<App now={now} storage={storage} />);
+    await waitFor(() => expect(screen.getByText('Último ayuno: 15 h 2 min')).toBeTruthy());
+    expect(
+      StyleSheet.flatten(
+        screen.getByTestId('home-fasting-day-2026-08-17-circle').props.style,
+      ),
+    ).toMatchObject({ borderColor: colors.accent });
+  });
+
+  it('keeps the active fasting duration until the app is reopened or resumed', async () => {
     jest.useFakeTimers();
 
     try {
@@ -1019,7 +1133,8 @@ describe('Gym Tracker app flow', () => {
         jest.advanceTimersByTime(60_000);
       });
 
-      expect(screen.getByText('Duración: 15 min')).toBeTruthy();
+      expect(screen.getByText('Duración: 0 min')).toBeTruthy();
+      expect(screen.queryByText('Duración: 15 min')).toBeNull();
       await rendered.unmount();
     } finally {
       jest.useRealTimers();

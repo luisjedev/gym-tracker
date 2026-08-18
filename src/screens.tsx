@@ -15,7 +15,13 @@ import {
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { calculateFastingDurationMinutes, getAverageFastingDurationMinutes } from './storage/fasting';
+import {
+  calculateFastingDurationMinutes,
+  getAverageFastingDurationMinutes,
+  getFirstValidEatingTime,
+  getWeeklyFastingSummary,
+  type WeeklyFastingDay,
+} from './storage/fasting';
 import {
   getHistoryDays,
   getHistoryFastings,
@@ -316,6 +322,108 @@ function StrengthSessionRow({
   );
 }
 
+const FASTING_WEEKDAY_LABELS = [
+  { short: 'Lun', full: 'Lunes' },
+  { short: 'Mar', full: 'Martes' },
+  { short: 'Mié', full: 'Miércoles' },
+  { short: 'Jue', full: 'Jueves' },
+  { short: 'Vie', full: 'Viernes' },
+  { short: 'Sáb', full: 'Sábado' },
+  { short: 'Dom', full: 'Domingo' },
+] as const;
+
+function getFastingDayHours(durationMinutes: number | null): number {
+  return durationMinutes === null
+    ? 0
+    : Math.max(0, Math.floor(durationMinutes / 60));
+}
+
+function getFastingDayStatusLabel(status: WeeklyFastingDay['status']): string {
+  switch (status) {
+    case 'success':
+      return 'más de 15 horas';
+    case 'danger':
+      return '15 horas o menos o sin ayuno válido';
+    case 'active':
+      return 'ayuno activo';
+    default:
+      return 'sin ayuno iniciado';
+  }
+}
+
+function getFastingDayCircleStyle(status: WeeklyFastingDay['status']) {
+  switch (status) {
+    case 'success':
+      return styles.fastingDayCircleSuccess;
+    case 'danger':
+      return styles.fastingDayCircleDanger;
+    case 'active':
+      return styles.fastingDayCircleActive;
+    default:
+      return styles.fastingDayCircleNeutral;
+  }
+}
+
+function FastingWeekSummary({ days }: { days: readonly WeeklyFastingDay[] }) {
+  return (
+    <View style={styles.fastingWeekSummary} testID="home-fasting-week">
+      <Text style={styles.fastingSummaryTitle}>Resumen semanal</Text>
+      <View style={styles.fastingDayList}>
+        {days.map((day, index) => {
+          const weekday = FASTING_WEEKDAY_LABELS[index];
+          const hours = getFastingDayHours(day.durationMinutes);
+
+          return (
+            <View
+              key={day.date}
+              style={styles.fastingDayItem}
+              testID={`home-fasting-day-${day.date}`}
+            >
+              <Text style={styles.fastingDayLabel}>{weekday.short}</Text>
+              <View
+                accessible
+                accessibilityLabel={`${weekday.full}: ${hours} horas, ${getFastingDayStatusLabel(
+                  day.status,
+                )}`}
+                style={[styles.fastingDayCircle, getFastingDayCircleStyle(day.status)]}
+                testID={`home-fasting-day-${day.date}-circle`}
+              >
+                <Text style={styles.fastingDayHours}>{formatNumber(hours)}</Text>
+                <Text style={styles.fastingDayHoursUnit}>h</Text>
+              </View>
+            </View>
+          );
+        })}
+      </View>
+      <Text style={styles.emptyText}>
+        Verde: más de 15 h · rojo: 15 h o menos · amarillo: ayuno activo
+      </Text>
+    </View>
+  );
+}
+
+function FastingEatingGuidance({
+  startedAt,
+  currentTime,
+}: {
+  startedAt: string;
+  currentTime: Date;
+}) {
+  const firstValidEatingTime = getFirstValidEatingTime(startedAt);
+  const canEat = currentTime.getTime() >= firstValidEatingTime.getTime();
+
+  return (
+    <View style={styles.fastingGuidance}>
+      <Text style={styles.supportText}>
+        Primera hora válida para comer: {formatTimestamp(firstValidEatingTime.toISOString())}
+      </Text>
+      <Text style={[styles.supportText, canEat && styles.activeMetricText]}>
+        {canEat ? 'Ya puedes comer' : 'Aún no puedes comer'}
+      </Text>
+    </View>
+  );
+}
+
 export function HomeScreen() {
   const {
     state,
@@ -375,7 +483,13 @@ export function HomeScreen() {
         currentTime.toISOString(),
       )
     : null;
-  const lastCompletedFasting = state.fasting.completed[0] ?? null;
+  const lastCompletedFasting = getHistoryFastings(state.fasting.completed)[0] ?? null;
+  const weeklyFastingSummary = getWeeklyFastingSummary(
+    state.fasting.completed,
+    activeFasting,
+    currentTime,
+  );
+  const fastingGuidanceStart = activeFasting?.startedAt ?? lastCompletedFasting?.startedAt;
   const averageFastingDuration = getAverageFastingDurationMinutes(
     state.fasting.completed,
   );
@@ -511,8 +625,9 @@ export function HomeScreen() {
         ) : null}
       </Card>
 
-      <Card>
+      <Card testID="home-fasting-card">
         <SectionLabel>Ayuno</SectionLabel>
+        <FastingWeekSummary days={weeklyFastingSummary} />
         {activeFasting && activeFastingDuration !== null ? (
           <>
             <Text style={[styles.metricText, styles.activeMetricText]}>Ayuno activo</Text>
@@ -522,6 +637,12 @@ export function HomeScreen() {
             <Text style={styles.supportText}>
               Duración: {formatFastingDuration(activeFastingDuration)}
             </Text>
+            {fastingGuidanceStart ? (
+              <FastingEatingGuidance
+                currentTime={currentTime}
+                startedAt={fastingGuidanceStart}
+              />
+            ) : null}
             <Text style={styles.supportText}>
               Duración media: {averageFastingDurationLabel}
             </Text>
@@ -543,6 +664,12 @@ export function HomeScreen() {
                 ? formatFastingDuration(lastCompletedFasting.durationMinutes)
                 : 'Sin ayunos finalizados'}
             </Text>
+            {fastingGuidanceStart ? (
+              <FastingEatingGuidance
+                currentTime={currentTime}
+                startedAt={fastingGuidanceStart}
+              />
+            ) : null}
             <Text style={styles.supportText}>
               Duración media: {averageFastingDurationLabel}
             </Text>
@@ -2768,6 +2895,67 @@ const styles = StyleSheet.create({
   },
   activeMetricText: {
     color: colors.warning,
+  },
+  fastingWeekSummary: {
+    gap: 8,
+  },
+  fastingSummaryTitle: {
+    color: colors.text,
+    fontSize: 17,
+    fontWeight: '800',
+  },
+  fastingDayList: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  fastingDayItem: {
+    alignItems: 'center',
+    flex: 1,
+    gap: 4,
+  },
+  fastingDayLabel: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  fastingDayCircle: {
+    alignItems: 'center',
+    borderRadius: 999,
+    borderWidth: 2,
+    height: 42,
+    justifyContent: 'center',
+    width: 42,
+  },
+  fastingDayCircleNeutral: {
+    backgroundColor: colors.surfaceSunken,
+    borderColor: colors.border,
+  },
+  fastingDayCircleSuccess: {
+    backgroundColor: colors.successSurface,
+    borderColor: colors.accent,
+  },
+  fastingDayCircleDanger: {
+    backgroundColor: colors.dangerSurface,
+    borderColor: colors.danger,
+  },
+  fastingDayCircleActive: {
+    backgroundColor: colors.surfaceRaised,
+    borderColor: colors.warning,
+  },
+  fastingDayHours: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '800',
+    lineHeight: 17,
+  },
+  fastingDayHoursUnit: {
+    color: colors.textSecondary,
+    fontSize: 10,
+    fontWeight: '700',
+    lineHeight: 11,
+  },
+  fastingGuidance: {
+    gap: 4,
   },
   supportText: {
     color: colors.textSecondary,
