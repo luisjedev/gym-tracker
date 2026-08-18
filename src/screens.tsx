@@ -25,6 +25,7 @@ import {
   getProgressStatistics,
   type WeeklyGoalStatistics,
 } from './storage/statistics';
+import type { ExerciseMediaSelection } from './media/exerciseMedia';
 import { useAppState } from './state/AppStateContext';
 import {
   DEFAULT_MUSCLE_GROUPS,
@@ -33,6 +34,7 @@ import {
   getMondayDateKey,
   sortExercises,
   type Exercise,
+  type ExerciseCover,
   type MediaItem,
   type MuscleGroup,
   type StrengthSession,
@@ -739,6 +741,48 @@ function ExerciseMediaPreview({
   );
 }
 
+type ExerciseCoverSource =
+  | Pick<ExerciseCover, 'uri'>
+  | ExerciseMediaSelection
+  | null
+  | undefined;
+
+function ExerciseCoverPreview({
+  accessibilityLabel,
+  cover,
+  muscleGroupId,
+  testID,
+}: {
+  accessibilityLabel?: string;
+  cover: ExerciseCoverSource;
+  muscleGroupId: string;
+  testID: string;
+}) {
+  const [isUnavailable, setIsUnavailable] = useState(false);
+
+  if (cover?.uri && !isUnavailable) {
+    return (
+      <Image
+        accessibilityLabel={accessibilityLabel}
+        onError={() => setIsUnavailable(true)}
+        resizeMode="cover"
+        source={{ uri: cover.uri }}
+        style={styles.exerciseCoverImage}
+        testID={testID}
+      />
+    );
+  }
+
+  return (
+    <View style={styles.exerciseCoverPlaceholder} testID={testID}>
+      <Text style={styles.exerciseCoverIcon}>{getMuscleGroupIcon(muscleGroupId)}</Text>
+      <Text style={styles.exerciseCoverText}>
+        {cover ? 'Portada no disponible' : 'Sin portada'}
+      </Text>
+    </View>
+  );
+}
+
 const MUSCLE_GROUP_ICONS: Record<string, string> = {
   pecho: '◉',
   espalda: '▰',
@@ -766,7 +810,10 @@ export function ExercisesScreen() {
     createExercise,
     deleteExercise,
     errorMessage,
+    pickExerciseCover,
+    removeExerciseCover,
     removeExerciseMedia,
+    setExerciseCover,
     updateExercise,
   } = useAppState();
   const navigation = useNavigation<BottomTabNavigationProp<RootTabParamList>>();
@@ -778,14 +825,21 @@ export function ExercisesScreen() {
   const [isExerciseFormVisible, setIsExerciseFormVisible] = useState(false);
   const [exerciseName, setExerciseName] = useState('');
   const [exerciseDescription, setExerciseDescription] = useState('');
+  const [exerciseCoverSelection, setExerciseCoverSelection] =
+    useState<ExerciseMediaSelection | null>(null);
   const [exerciseValidationError, setExerciseValidationError] = useState<string | null>(null);
   const [exerciseSuccessMessage, setExerciseSuccessMessage] = useState<string | null>(null);
   const [isExerciseEditVisible, setIsExerciseEditVisible] = useState(false);
   const [exerciseEditName, setExerciseEditName] = useState('');
   const [exerciseEditDescription, setExerciseEditDescription] = useState('');
   const [exerciseEditGroupId, setExerciseEditGroupId] = useState<string | null>(null);
+  const [exerciseEditCoverSelection, setExerciseEditCoverSelection] = useState<
+    ExerciseMediaSelection | null | undefined
+  >(undefined);
   const [exerciseEditError, setExerciseEditError] = useState<string | null>(null);
   const [exerciseActionError, setExerciseActionError] = useState<string | null>(null);
+  const [coverActionError, setCoverActionError] = useState<string | null>(null);
+  const [coverSuccessMessage, setCoverSuccessMessage] = useState<string | null>(null);
   const [mediaActionError, setMediaActionError] = useState<string | null>(null);
   const [mediaSuccessMessage, setMediaSuccessMessage] = useState<string | null>(null);
   const [selectedMediaId, setSelectedMediaId] = useState<string | null>(null);
@@ -830,7 +884,9 @@ export function ExercisesScreen() {
   function resetExerciseForm() {
     setExerciseName('');
     setExerciseDescription('');
+    setExerciseCoverSelection(null);
     setExerciseValidationError(null);
+    setCoverActionError(null);
     setIsExerciseFormVisible(false);
   }
 
@@ -839,6 +895,8 @@ export function ExercisesScreen() {
     setSelectedExerciseId(null);
     setSelectedMediaId(null);
     setIsExerciseFormVisible(false);
+    setCoverActionError(null);
+    setCoverSuccessMessage(null);
     setExerciseSuccessMessage(null);
   }
 
@@ -848,15 +906,92 @@ export function ExercisesScreen() {
     setSelectedExerciseId(null);
     setSelectedMediaId(null);
     setIsExerciseFormVisible(false);
+    setCoverActionError(null);
+    setCoverSuccessMessage(null);
     setExerciseSuccessMessage(null);
   }
 
   function openExerciseForm() {
     setExerciseName('');
     setExerciseDescription('');
+    setExerciseCoverSelection(null);
     setExerciseValidationError(null);
+    setCoverActionError(null);
+    setCoverSuccessMessage(null);
     setExerciseSuccessMessage(null);
     setIsExerciseFormVisible(true);
+  }
+
+  async function requestCoverSelection(): Promise<ExerciseMediaSelection | null> {
+    setCoverActionError(null);
+    setCoverSuccessMessage(null);
+
+    try {
+      const selection = await pickExerciseCover();
+      if (!selection) {
+        setCoverActionError('No se seleccionó ninguna imagen de portada.');
+        return null;
+      }
+
+      return selection;
+    } catch (error) {
+      setCoverActionError(
+        error instanceof Error ? error.message : 'No se pudo seleccionar la portada.',
+      );
+      return null;
+    }
+  }
+
+  async function handleSelectCreateCover() {
+    const selection = await requestCoverSelection();
+    if (selection) {
+      setExerciseCoverSelection(selection);
+    }
+  }
+
+  async function handleSelectEditCover() {
+    const selection = await requestCoverSelection();
+    if (selection) {
+      setExerciseEditCoverSelection(selection);
+    }
+  }
+
+  async function handleSelectDetailCover() {
+    if (!selectedExercise) {
+      return;
+    }
+
+    const selection = await requestCoverSelection();
+    if (!selection) {
+      return;
+    }
+
+    try {
+      await setExerciseCover(selectedExercise.id, selection);
+      setCoverSuccessMessage('Portada guardada');
+    } catch (error) {
+      setCoverActionError(
+        error instanceof Error ? error.message : 'No se pudo guardar la portada.',
+      );
+    }
+  }
+
+  async function handleRemoveDetailCover() {
+    if (!selectedExercise) {
+      return;
+    }
+
+    setCoverActionError(null);
+    setCoverSuccessMessage(null);
+
+    try {
+      await removeExerciseCover(selectedExercise.id);
+      setCoverSuccessMessage('Portada eliminada');
+    } catch (error) {
+      setCoverActionError(
+        error instanceof Error ? error.message : 'No se pudo eliminar la portada.',
+      );
+    }
   }
 
   async function handleCreateExercise() {
@@ -874,11 +1009,14 @@ export function ExercisesScreen() {
     }
 
     try {
-      await createExercise({
-        name: exerciseName,
-        muscleGroupId: selectedGroup.id,
-        description: exerciseDescription,
-      });
+      await createExercise(
+        {
+          name: exerciseName,
+          muscleGroupId: selectedGroup.id,
+          description: exerciseDescription,
+        },
+        exerciseCoverSelection ?? undefined,
+      );
       resetExerciseForm();
       setExerciseSuccessMessage('Ejercicio guardado');
     } catch (error) {
@@ -896,8 +1034,11 @@ export function ExercisesScreen() {
     setExerciseEditName(selectedExercise.name);
     setExerciseEditDescription(selectedExercise.description);
     setExerciseEditGroupId(selectedExercise.muscleGroupId);
+    setExerciseEditCoverSelection(undefined);
     setExerciseEditError(null);
     setExerciseActionError(null);
+    setCoverActionError(null);
+    setCoverSuccessMessage(null);
     setIsExerciseDeleteConfirmationVisible(false);
     setIsExerciseEditVisible(true);
   }
@@ -922,12 +1063,17 @@ export function ExercisesScreen() {
     }
 
     try {
-      await updateExercise(selectedExercise.id, {
-        name: exerciseEditName,
-        muscleGroupId: exerciseEditGroupId,
-        description: exerciseEditDescription,
-      });
+      await updateExercise(
+        selectedExercise.id,
+        {
+          name: exerciseEditName,
+          muscleGroupId: exerciseEditGroupId,
+          description: exerciseEditDescription,
+        },
+        exerciseEditCoverSelection,
+      );
       setSelectedGroupId(exerciseEditGroupId);
+      setExerciseEditCoverSelection(undefined);
       setIsExerciseEditVisible(false);
       setExerciseSuccessMessage('Ejercicio actualizado');
     } catch (error) {
@@ -1029,6 +1175,63 @@ export function ExercisesScreen() {
                 testID="exercise-edit-description-input"
                 value={exerciseEditDescription}
               />
+              <SectionLabel>Portada</SectionLabel>
+              <ExerciseCoverPreview
+                accessibilityLabel={`Portada de ${selectedExercise.name}`}
+                cover={
+                  exerciseEditCoverSelection === undefined
+                    ? selectedExercise.cover
+                    : exerciseEditCoverSelection
+                }
+                key={
+                  exerciseEditCoverSelection === undefined
+                    ? selectedExercise.cover?.uri ?? 'no-cover'
+                    : exerciseEditCoverSelection?.uri ?? 'no-cover'
+                }
+                muscleGroupId={selectedExercise.muscleGroupId}
+                testID="exercise-edit-cover-preview"
+              />
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={
+                  (exerciseEditCoverSelection === undefined
+                    ? selectedExercise.cover
+                    : exerciseEditCoverSelection)
+                    ? 'Cambiar portada'
+                    : 'Seleccionar portada'
+                }
+                onPress={() => void handleSelectEditCover()}
+                style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
+              >
+                <Text style={styles.primaryButtonText}>
+                  {(exerciseEditCoverSelection === undefined
+                    ? selectedExercise.cover
+                    : exerciseEditCoverSelection)
+                    ? 'Cambiar portada'
+                    : 'Seleccionar portada'}
+                </Text>
+              </Pressable>
+              {(exerciseEditCoverSelection === undefined
+                ? selectedExercise.cover
+                : exerciseEditCoverSelection) ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Quitar portada"
+                  onPress={() => {
+                    setExerciseEditCoverSelection(null);
+                    setCoverActionError(null);
+                    setCoverSuccessMessage(null);
+                  }}
+                  style={({ pressed }) => [styles.smallDangerButton, pressed && styles.pressed]}
+                >
+                  <Text style={styles.smallDangerButtonText}>Quitar portada</Text>
+                </Pressable>
+              ) : null}
+              {coverActionError ? (
+                <Text accessibilityRole="alert" style={styles.errorText}>
+                  {coverActionError}
+                </Text>
+              ) : null}
               <Text style={styles.supportText}>Selecciona un grupo muscular</Text>
               <View style={styles.groupList}>
                 {DEFAULT_MUSCLE_GROUPS.map((group) => (
@@ -1085,6 +1288,42 @@ export function ExercisesScreen() {
                   <SectionLabel>Descripción</SectionLabel>
                   <Text style={styles.supportText}>{selectedExercise.description}</Text>
                 </>
+              ) : null}
+              <SectionLabel>Portada</SectionLabel>
+              <ExerciseCoverPreview
+                accessibilityLabel={`Portada de ${selectedExercise.name}`}
+                cover={selectedExercise.cover}
+                key={selectedExercise.cover?.uri ?? 'no-cover'}
+                muscleGroupId={selectedExercise.muscleGroupId}
+                testID={`exercise-cover-detail-${selectedExercise.id}`}
+              />
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={selectedExercise.cover ? 'Cambiar portada' : 'Seleccionar portada'}
+                onPress={() => void handleSelectDetailCover()}
+                style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
+              >
+                <Text style={styles.primaryButtonText}>
+                  {selectedExercise.cover ? 'Cambiar portada' : 'Seleccionar portada'}
+                </Text>
+              </Pressable>
+              {selectedExercise.cover ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Quitar portada"
+                  onPress={() => void handleRemoveDetailCover()}
+                  style={({ pressed }) => [styles.smallDangerButton, pressed && styles.pressed]}
+                >
+                  <Text style={styles.smallDangerButtonText}>Quitar portada</Text>
+                </Pressable>
+              ) : null}
+              {coverActionError ? (
+                <Text accessibilityRole="alert" style={styles.errorText}>
+                  {coverActionError}
+                </Text>
+              ) : null}
+              {coverSuccessMessage ? (
+                <Text style={styles.successText}>{coverSuccessMessage}</Text>
               ) : null}
               <SectionLabel>Multimedia</SectionLabel>
               <Text style={styles.supportText}>
@@ -1259,6 +1498,41 @@ export function ExercisesScreen() {
                 testID="exercise-description-input"
                 value={exerciseDescription}
               />
+              <SectionLabel>Portada</SectionLabel>
+              <ExerciseCoverPreview
+                accessibilityLabel={exerciseCoverSelection ? 'Portada seleccionada' : undefined}
+                cover={exerciseCoverSelection}
+                muscleGroupId={selectedGroup.id}
+                testID="exercise-cover-create-preview"
+              />
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={exerciseCoverSelection ? 'Cambiar portada' : 'Seleccionar portada'}
+                onPress={() => void handleSelectCreateCover()}
+                style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
+              >
+                <Text style={styles.primaryButtonText}>
+                  {exerciseCoverSelection ? 'Cambiar portada' : 'Seleccionar portada'}
+                </Text>
+              </Pressable>
+              {exerciseCoverSelection ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Quitar portada"
+                  onPress={() => {
+                    setExerciseCoverSelection(null);
+                    setCoverActionError(null);
+                  }}
+                  style={({ pressed }) => [styles.smallDangerButton, pressed && styles.pressed]}
+                >
+                  <Text style={styles.smallDangerButtonText}>Quitar portada</Text>
+                </Pressable>
+              ) : null}
+              {coverActionError ? (
+                <Text accessibilityRole="alert" style={styles.errorText}>
+                  {coverActionError}
+                </Text>
+              ) : null}
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Guardar ejercicio"
@@ -1315,13 +1589,13 @@ export function ExercisesScreen() {
                     }}
                     style={({ pressed }) => [styles.exerciseCard, pressed && styles.pressed]}
                   >
-                    <View
-                      style={styles.exerciseCoverPlaceholder}
+                    <ExerciseCoverPreview
+                      accessibilityLabel={`Portada de ${exercise.name}`}
+                      cover={exercise.cover}
+                      key={exercise.cover?.uri ?? 'no-cover'}
+                      muscleGroupId={exercise.muscleGroupId}
                       testID={`exercise-cover-${exercise.id}`}
-                    >
-                      <Text style={styles.exerciseCoverIcon}>◇</Text>
-                      <Text style={styles.exerciseCoverText}>Espacio para portada</Text>
-                    </View>
+                    />
                     <View style={styles.exerciseCardCopy}>
                       <Text style={styles.listRowTitle}>{exercise.name}</Text>
                       <Text style={styles.mutedText}>
@@ -2651,6 +2925,13 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceSunken,
     borderRadius: 10,
     justifyContent: 'center',
+    overflow: 'hidden',
+    width: '100%',
+  },
+  exerciseCoverImage: {
+    aspectRatio: 2.2,
+    backgroundColor: colors.surfaceSunken,
+    borderRadius: 10,
     overflow: 'hidden',
     width: '100%',
   },

@@ -110,6 +110,7 @@ describe('versioned local app state', () => {
 
     expect(migrated.muscleGroups).toEqual(DEFAULT_MUSCLE_GROUPS);
     expect(migrated.exercises[0].muscleGroupId).toBe('hombro');
+    expect(migrated.exercises[0].cover).toBeNull();
     expect(storage.writes).toBe(2);
   });
 
@@ -262,6 +263,74 @@ describe('versioned local app state', () => {
       weekStart: sunday,
     };
     delete payload.state.weeklyRecords[monday];
+    storage.value = JSON.stringify(payload);
+
+    await expect(loadAppState(storage, now)).rejects.toThrow(
+      'La versión de los datos guardados no es compatible.',
+    );
+  });
+
+  it('persists an independent exercise cover and keeps it when reloading', async () => {
+    const now = new Date(2026, 7, 17, 12, 0, 0);
+    const storage = new MemoryStorage();
+    const state = createDefaultState(now);
+    state.exercises = [
+      {
+        id: 'exercise-1',
+        name: 'Sentadilla',
+        muscleGroupId: 'piernas',
+        description: '',
+        cover: {
+          id: 'cover-1',
+          uri: 'file:///private/cover.jpg',
+          width: 1200,
+          height: 800,
+        },
+        media: [
+          {
+            id: 'media-1',
+            type: 'image',
+            uri: 'file:///private/detail.jpg',
+          },
+        ],
+        createdAt: '2026-08-17T10:00:00.000Z',
+        updatedAt: '2026-08-17T10:00:00.000Z',
+      },
+    ];
+
+    await saveAppState(storage, state);
+    const loaded = await loadAppState(storage, now);
+
+    expect(loaded.exercises[0].cover).toEqual({
+      id: 'cover-1',
+      uri: 'file:///private/cover.jpg',
+      width: 1200,
+      height: 800,
+    });
+    expect(loaded.exercises[0].media).toHaveLength(1);
+  });
+
+  it('rejects persisted exercise covers without a private URI', async () => {
+    const now = new Date(2026, 7, 17, 12, 0, 0);
+    const storage = new MemoryStorage();
+    await saveAppState(storage, createDefaultState(now));
+
+    const payload = JSON.parse(storage.value ?? '{}');
+    payload.state.exercises = [
+      {
+        id: 'exercise-1',
+        name: 'Sentadilla',
+        muscleGroupId: 'piernas',
+        description: '',
+        cover: {
+          id: 'cover-1',
+          uri: 'content://picked/cover.jpg',
+        },
+        media: [],
+        createdAt: '2026-08-17T10:00:00.000Z',
+        updatedAt: '2026-08-17T10:00:00.000Z',
+      },
+    ];
     storage.value = JSON.stringify(payload);
 
     await expect(loadAppState(storage, now)).rejects.toThrow(

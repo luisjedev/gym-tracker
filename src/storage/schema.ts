@@ -58,11 +58,19 @@ export interface MediaItem {
   duration?: number;
 }
 
+export interface ExerciseCover {
+  id: string;
+  uri: string;
+  width?: number;
+  height?: number;
+}
+
 export interface Exercise {
   id: string;
   name: string;
   muscleGroupId: string;
   description: string;
+  cover?: ExerciseCover | null;
   media: MediaItem[];
   createdAt: string;
   updatedAt: string;
@@ -352,6 +360,23 @@ function migrateToFixedMuscleGroupCatalog(state: AppState): AppState {
   };
 }
 
+function normalizeExerciseCovers(state: AppState): AppState {
+  let hasMissingCover = false;
+  const exercises = state.exercises.map((exercise) => {
+    if (exercise.cover !== undefined) {
+      return exercise;
+    }
+
+    hasMissingCover = true;
+    return {
+      ...exercise,
+      cover: null,
+    };
+  });
+
+  return hasMissingCover ? { ...state, exercises } : state;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -490,6 +515,17 @@ function isValidMediaItem(value: unknown): value is MediaItem {
   );
 }
 
+function isValidExerciseCover(value: unknown): value is ExerciseCover {
+  return (
+    isRecord(value) &&
+    isNonEmptyString(value.id) &&
+    isNonEmptyString(value.uri) &&
+    value.uri.startsWith('file://') &&
+    isOptionalNonNegativeNumber(value.width) &&
+    isOptionalNonNegativeNumber(value.height)
+  );
+}
+
 function isValidExercise(value: unknown): value is Exercise {
   return (
     isRecord(value) &&
@@ -497,6 +533,7 @@ function isValidExercise(value: unknown): value is Exercise {
     isNonEmptyString(value.name) &&
     isNonEmptyString(value.muscleGroupId) &&
     typeof value.description === 'string' &&
+    (value.cover === undefined || value.cover === null || isValidExerciseCover(value.cover)) &&
     Array.isArray(value.media) &&
     value.media.every(isValidMediaItem) &&
     isValidTimestamp(value.createdAt) &&
@@ -579,11 +616,16 @@ function isValidState(value: unknown): value is AppState {
   const hasKnownGroups = (session: StrengthSession): boolean =>
     session.muscleGroupIds.every((groupId) => muscleGroupIds.has(groupId));
 
+  const exerciseAssetIds = state.exercises.flatMap((exercise) => [
+    ...(exercise.cover ? [exercise.cover.id] : []),
+    ...exercise.media.map((mediaItem) => mediaItem.id),
+  ]);
+
   return (
     hasUniqueIds(state.muscleGroups) &&
     hasUniqueIds(state.settings.strengthSessions) &&
     hasUniqueIds(state.exercises) &&
-    state.exercises.every((exercise) => hasUniqueIds(exercise.media)) &&
+    hasUniqueIds(exerciseAssetIds.map((id) => ({ id }))) &&
     Object.values(state.weeklyRecords).every((week) =>
       hasUniqueIds(week.strengthSessions),
     ) &&
@@ -644,7 +686,8 @@ export async function loadAppState(
 
   const persisted = parsePersistedState(rawValue);
   const migratedState = migrateToFixedMuscleGroupCatalog(persisted.state);
-  const state = ensureCurrentPeriods(migratedState, now);
+  const normalizedState = normalizeExerciseCovers(migratedState);
+  const state = ensureCurrentPeriods(normalizedState, now);
 
   if (state !== persisted.state) {
     await saveAppState(storage, state);

@@ -23,6 +23,7 @@ export interface ExerciseMediaCopy {
 
 export interface ExerciseMediaAdapter {
   selectMedia(): Promise<readonly ExerciseMediaSelection[]>;
+  selectCover?(): Promise<ExerciseMediaSelection | null>;
   copyToPrivateStorage(selection: ExerciseMediaSelection): Promise<ExerciseMediaCopy>;
   deletePrivateCopy(uri: string): Promise<void>;
 }
@@ -85,6 +86,23 @@ export const defaultExerciseMediaAdapter: ExerciseMediaAdapter = {
       const selection = toSelection(asset);
       return selection ? [selection] : [];
     });
+  },
+
+  async selectCover() {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      allowsEditing: false,
+      allowsMultipleSelection: false,
+      mediaTypes: ['images'],
+      quality: 1,
+      selectionLimit: 1,
+    });
+
+    if (result.canceled || result.assets.length === 0) {
+      return null;
+    }
+
+    const selection = toSelection(result.assets[0]);
+    return selection?.type === 'image' ? selection : null;
   },
 
   async copyToPrivateStorage(selection) {

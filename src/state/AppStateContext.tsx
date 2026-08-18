@@ -15,6 +15,7 @@ import {
   defaultExerciseMediaAdapter,
   type ExerciseMediaAdapter,
   type ExerciseMediaCopy,
+  type ExerciseMediaSelection,
 } from '../media/exerciseMedia';
 import {
   defaultWaterNotificationAdapter,
@@ -35,6 +36,7 @@ import {
   saveAppState,
   type AppState,
   type DailyRecord,
+  type ExerciseCover,
   type MediaItem,
   type NewExerciseInput,
   type StrengthSession,
@@ -67,8 +69,18 @@ export interface AppStateContextValue {
   updateHiitWeeklyGoal(value: number): Promise<void>;
   updateStrengthConfiguration(sessions: StrengthSessionInput[]): Promise<void>;
   updateWaterSettings(settings: WaterSettings): Promise<void>;
-  createExercise(input: NewExerciseInput): Promise<void>;
-  updateExercise(id: string, input: NewExerciseInput): Promise<void>;
+  pickExerciseCover(): Promise<ExerciseMediaSelection | null>;
+  createExercise(
+    input: NewExerciseInput,
+    coverSelection?: ExerciseMediaSelection,
+  ): Promise<void>;
+  updateExercise(
+    id: string,
+    input: NewExerciseInput,
+    coverSelection?: ExerciseMediaSelection | null,
+  ): Promise<void>;
+  setExerciseCover(id: string, selection: ExerciseMediaSelection): Promise<void>;
+  removeExerciseCover(id: string): Promise<void>;
   deleteExercise(id: string): Promise<void>;
   addExerciseMedia(id: string): Promise<boolean>;
   removeExerciseMedia(id: string, mediaId: string): Promise<void>;
@@ -92,6 +104,88 @@ function createUniqueId(prefix: string, existingIds: readonly string[]): string 
   }
 
   return id;
+}
+
+function getExerciseAssetIds(state: AppState): string[] {
+  return state.exercises.flatMap((exercise) => [
+    ...(exercise.cover ? [exercise.cover.id] : []),
+    ...exercise.media.map((mediaItem) => mediaItem.id),
+  ]);
+}
+
+function createExerciseCover(
+  copy: ExerciseMediaCopy,
+  existingAssetIds: readonly string[],
+): ExerciseCover {
+  if (
+    !copy.uri ||
+    !copy.uri.startsWith('file://') ||
+    copy.type !== 'image'
+  ) {
+    throw new Error('La copia de portada no devolvió una imagen válida.');
+  }
+
+  return {
+    id: createUniqueId('cover', existingAssetIds),
+    uri: copy.uri,
+    width: copy.width,
+    height: copy.height,
+  };
+}
+
+interface CopiedExerciseCover {
+  cover: ExerciseCover;
+  uri: string;
+}
+
+async function cleanupCopiedExerciseCover(
+  media: ExerciseMediaAdapter,
+  uri: string,
+): Promise<void> {
+  try {
+    await media.deletePrivateCopy(uri);
+  } catch {
+    // Preserve the original copy or persistence error.
+  }
+}
+
+async function copyExerciseCover(
+  media: ExerciseMediaAdapter,
+  selection: ExerciseMediaSelection,
+  existingAssetIds: readonly string[],
+): Promise<CopiedExerciseCover> {
+  const copy = await media.copyToPrivateStorage(selection);
+
+  try {
+    return {
+      cover: createExerciseCover(copy, existingAssetIds),
+      uri: copy.uri,
+    };
+  } catch (error) {
+    if (copy.uri.startsWith('file://')) {
+      await cleanupCopiedExerciseCover(media, copy.uri);
+    }
+    throw error;
+  }
+}
+
+async function deleteReplacedExerciseCover(
+  media: ExerciseMediaAdapter,
+  previousCover: ExerciseCover | null | undefined,
+  nextUri: string | undefined,
+): Promise<void> {
+  if (!previousCover || previousCover.uri === nextUri) {
+    return;
+  }
+
+  try {
+    await media.deletePrivateCopy(previousCover.uri);
+  } catch (error) {
+    throw new Error(
+      'La portada se actualizó, pero no se pudo limpiar la portada anterior.',
+      { cause: error },
+    );
+  }
 }
 
 function normalizeExerciseInput(
@@ -662,8 +756,17 @@ export function AppStateProvider({
     [notifications, persistState],
   );
 
+  const pickExerciseCover = useCallback(async () => {
+    if (media.selectCover) {
+      return media.selectCover();
+    }
+
+    const selections = await media.selectMedia();
+    return selections.find((selection) => selection.type === 'image') ?? null;
+  }, [media]);
+
   const createExercise = useCallback(
-    (input: NewExerciseInput) => {
+    (input: NewExerciseInput, coverSelection?: ExerciseMediaSelection) => {
       const operation = exerciseMutationQueueRef.current.then(async () => {
         const currentState = stateRef.current;
         if (!currentState) {
@@ -672,32 +775,56 @@ export function AppStateProvider({
 
         const normalizedInput = normalizeExerciseInput(currentState, input);
         const timestamp = now().toISOString();
-        const nextExercise = {
-          id: createUniqueId(
-            'exercise',
-            currentState.exercises.map((exercise) => exercise.id),
-          ),
-          name: normalizedInput.name,
-          muscleGroupId: normalizedInput.muscleGroupId,
-          description: normalizedInput.description ?? '',
-          media: [],
-          createdAt: timestamp,
-          updatedAt: timestamp,
-        };
+        let copiedCover: CopiedExerciseCover | null = null;
+        let stateWasPersisted = false;
 
-        await persistState({
-          ...currentState,
-          exercises: [...currentState.exercises, nextExercise],
-        });
+        try {
+          if (coverSelection) {
+            copiedCover = await copyExerciseCover(
+              media,
+              coverSelection,
+              getExerciseAssetIds(currentState),
+            );
+          }
+
+          const nextExercise = {
+            id: createUniqueId(
+              'exercise',
+              currentState.exercises.map((exercise) => exercise.id),
+            ),
+            name: normalizedInput.name,
+            muscleGroupId: normalizedInput.muscleGroupId,
+            description: normalizedInput.description ?? '',
+            cover: copiedCover?.cover ?? null,
+            media: [],
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          };
+
+          await persistState({
+            ...currentState,
+            exercises: [...currentState.exercises, nextExercise],
+          });
+          stateWasPersisted = true;
+        } catch (error) {
+          if (copiedCover && !stateWasPersisted) {
+            await cleanupCopiedExerciseCover(media, copiedCover.uri);
+          }
+          throw error;
+        }
       });
       exerciseMutationQueueRef.current = operation.catch(() => undefined);
       return operation;
     },
-    [now, persistState],
+    [media, now, persistState],
   );
 
   const updateExercise = useCallback(
-    (id: string, input: NewExerciseInput) => {
+    (
+      id: string,
+      input: NewExerciseInput,
+      coverSelection?: ExerciseMediaSelection | null,
+    ) => {
       const operation = exerciseMutationQueueRef.current.then(async () => {
         const currentState = stateRef.current;
         if (!currentState) {
@@ -712,25 +839,157 @@ export function AppStateProvider({
         }
 
         const normalizedInput = normalizeExerciseInput(currentState, input);
-        const updatedExercise = {
-          ...existingExercise,
-          name: normalizedInput.name,
-          muscleGroupId: normalizedInput.muscleGroupId,
-          description: normalizedInput.description ?? '',
-          updatedAt: now().toISOString(),
-        };
+        let copiedCover: CopiedExerciseCover | null = null;
+        let stateWasPersisted = false;
+        let nextCover = existingExercise.cover ?? null;
 
-        await persistState({
-          ...currentState,
-          exercises: currentState.exercises.map((exercise) =>
-            exercise.id === id ? updatedExercise : exercise,
-          ),
-        });
+        try {
+          if (coverSelection !== undefined && coverSelection !== null) {
+            copiedCover = await copyExerciseCover(
+              media,
+              coverSelection,
+              getExerciseAssetIds(currentState),
+            );
+            nextCover = copiedCover.cover;
+          } else if (coverSelection === null) {
+            nextCover = null;
+          }
+
+          const updatedExercise = {
+            ...existingExercise,
+            name: normalizedInput.name,
+            muscleGroupId: normalizedInput.muscleGroupId,
+            description: normalizedInput.description ?? '',
+            cover: nextCover,
+            updatedAt: now().toISOString(),
+          };
+
+          await persistState({
+            ...currentState,
+            exercises: currentState.exercises.map((exercise) =>
+              exercise.id === id ? updatedExercise : exercise,
+            ),
+          });
+          stateWasPersisted = true;
+
+          if (coverSelection !== undefined) {
+            await deleteReplacedExerciseCover(
+              media,
+              existingExercise.cover,
+              nextCover?.uri,
+            );
+          }
+        } catch (error) {
+          if (copiedCover && !stateWasPersisted) {
+            await cleanupCopiedExerciseCover(media, copiedCover.uri);
+          }
+          throw error;
+        }
       });
       exerciseMutationQueueRef.current = operation.catch(() => undefined);
       return operation;
     },
-    [now, persistState],
+    [media, now, persistState],
+  );
+
+  const setExerciseCover = useCallback(
+    (id: string, selection: ExerciseMediaSelection) => {
+      const operation = exerciseMutationQueueRef.current.then(async () => {
+        const currentState = stateRef.current;
+        if (!currentState) {
+          throw new Error('Los datos todavía se están cargando.');
+        }
+
+        const existingExercise = currentState.exercises.find(
+          (exercise) => exercise.id === id,
+        );
+        if (!existingExercise) {
+          throw new Error('No se encontró el ejercicio.');
+        }
+
+        let copiedCover: CopiedExerciseCover | null = null;
+        let stateWasPersisted = false;
+
+        try {
+          copiedCover = await copyExerciseCover(
+            media,
+            selection,
+            getExerciseAssetIds(currentState),
+          );
+
+          await persistState({
+            ...currentState,
+            exercises: currentState.exercises.map((exercise) =>
+              exercise.id === id
+                ? {
+                    ...exercise,
+                    cover: copiedCover?.cover ?? null,
+                    updatedAt: now().toISOString(),
+                  }
+                : exercise,
+            ),
+          });
+          stateWasPersisted = true;
+
+          await deleteReplacedExerciseCover(
+            media,
+            existingExercise.cover,
+            copiedCover.cover.uri,
+          );
+        } catch (error) {
+          if (copiedCover && !stateWasPersisted) {
+            await cleanupCopiedExerciseCover(media, copiedCover.uri);
+          }
+          throw error;
+        }
+      });
+      exerciseMutationQueueRef.current = operation.catch(() => undefined);
+      return operation;
+    },
+    [media, now, persistState],
+  );
+
+  const removeExerciseCover = useCallback(
+    (id: string) => {
+      const operation = exerciseMutationQueueRef.current.then(async () => {
+        const currentState = stateRef.current;
+        if (!currentState) {
+          throw new Error('Los datos todavía se están cargando.');
+        }
+
+        const existingExercise = currentState.exercises.find(
+          (exercise) => exercise.id === id,
+        );
+        if (!existingExercise) {
+          throw new Error('No se encontró el ejercicio.');
+        }
+
+        if (!existingExercise.cover) {
+          return;
+        }
+
+        await persistState({
+          ...currentState,
+          exercises: currentState.exercises.map((exercise) =>
+            exercise.id === id
+              ? { ...exercise, cover: null, updatedAt: now().toISOString() }
+              : exercise,
+          ),
+        });
+
+        try {
+          await media.deletePrivateCopy(existingExercise.cover.uri);
+        } catch (error) {
+          throw new Error(
+            'La portada se eliminó, pero no se pudo limpiar su copia privada.',
+            { cause: error },
+          );
+        }
+      });
+      exerciseMutationQueueRef.current = operation.catch(() => undefined);
+      return operation;
+    },
+    [media, now, persistState],
   );
 
   const addExerciseMedia = useCallback(
@@ -886,9 +1145,13 @@ export function AppStateProvider({
         });
 
         let cleanupFailed = false;
-        for (const mediaItem of exercise.media) {
+        const privateCopies = [
+          ...(exercise.cover ? [exercise.cover.uri] : []),
+          ...exercise.media.map((mediaItem) => mediaItem.uri),
+        ];
+        for (const uri of new Set(privateCopies)) {
           try {
-            await media.deletePrivateCopy(mediaItem.uri);
+            await media.deletePrivateCopy(uri);
           } catch {
             cleanupFailed = true;
           }
@@ -1039,8 +1302,11 @@ export function AppStateProvider({
       updateHiitWeeklyGoal,
       updateStrengthConfiguration,
       updateWaterSettings,
+      pickExerciseCover,
       createExercise,
       updateExercise,
+      setExerciseCover,
+      removeExerciseCover,
       deleteExercise,
       addExerciseMedia,
       removeExerciseMedia,
@@ -1056,6 +1322,9 @@ export function AppStateProvider({
       createExercise,
       deleteExercise,
       errorMessage,
+      pickExerciseCover,
+      removeExerciseCover,
+      setExerciseCover,
       load,
       markHiitSessionCompleted,
       state,
