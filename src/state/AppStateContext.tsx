@@ -193,6 +193,18 @@ async function replaceWaterReminderSchedule(
   await scheduleWaterReminders(notifications, getWaterReminderTimes(settings));
 }
 
+async function ensureWaterReminderSchedule(
+  notifications: WaterNotificationAdapter,
+  settings: WaterSettings,
+): Promise<void> {
+  const scheduledIds = await notifications.getScheduledWaterReminderIds();
+  const expectedReminderCount = getWaterReminderTimes(settings).length;
+
+  if (scheduledIds.length !== expectedReminderCount) {
+    await replaceWaterReminderSchedule(notifications, settings);
+  }
+}
+
 async function restoreWaterReminderSchedule(
   notifications: WaterNotificationAdapter,
   previousWaterSettings: WaterSettings,
@@ -262,7 +274,7 @@ export function AppStateProvider({
         if (loadedState.settings.water.enabled && permission === 'granted') {
           try {
             await notifications.createChannel();
-            await replaceWaterReminderSchedule(
+            await ensureWaterReminderSchedule(
               notifications,
               loadedState.settings.water,
             );
@@ -297,13 +309,10 @@ export function AppStateProvider({
             try {
               await saveAppState(storage, stateToUse);
             } catch {
+              // Permission is not available, so do not re-create the old schedule.
               stateToUse = loadedState;
               waterStatePersistenceFailed = true;
-              const restored = await restoreWaterReminderSchedule(
-                notifications,
-                loadedState.settings.water,
-              );
-              nextWaterScheduleStatus = restored ? 'scheduled' : 'error';
+              nextWaterScheduleStatus = 'error';
             }
           }
         } else if (!loadedState.settings.water.enabled) {
@@ -596,17 +605,8 @@ export function AppStateProvider({
               });
               setWaterScheduleStatus('inactive');
             } catch (error) {
-              const restored = await restoreWaterReminderSchedule(
-                notifications,
-                previousWaterSettings,
-              );
-              setWaterScheduleStatus(
-                restored
-                  ? previousWaterSettings.enabled
-                    ? 'scheduled'
-                    : 'inactive'
-                  : 'error',
-              );
+              // Permission is not available, so never re-create the old schedule.
+              setWaterScheduleStatus('error');
               throw new Error(WATER_SCHEDULE_ERROR, { cause: error });
             }
 

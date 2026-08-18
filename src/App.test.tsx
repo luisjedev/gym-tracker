@@ -39,6 +39,7 @@ class ControlledWaterNotifications implements WaterNotificationAdapter {
   foreignCancellationAttempts = 0;
   failCancellations = false;
   failCancellationId: string | null = null;
+  failScheduling = false;
   private nextId = 1;
 
   async getPermissionStatus() {
@@ -61,6 +62,10 @@ class ControlledWaterNotifications implements WaterNotificationAdapter {
   }
 
   async scheduleWaterReminder(time: WaterReminderTime) {
+    if (this.failScheduling) {
+      throw new Error('schedule failed');
+    }
+
     const id = `water-${this.nextId}`;
     this.nextId += 1;
     this.scheduled.set(id, time);
@@ -1322,6 +1327,46 @@ describe('Gym Tracker app flow', () => {
     await waitFor(() => expect(screen.getByText('Activos')).toBeTruthy());
   });
 
+  it('does not report water reminders active when scheduling fails and can retry', async () => {
+    const notifications = new ControlledWaterNotifications();
+    notifications.permission = 'granted';
+    notifications.failScheduling = true;
+
+    await render(
+      <App
+        notifications={notifications}
+        now={() => new Date(2026, 7, 17, 12)}
+        storage={new MemoryStorage()}
+      />,
+    );
+    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
+    await fireEvent.press(screen.getByRole('button', { name: /Ajustes/ }));
+    await fireEvent(
+      screen.getByTestId('water-enabled-switch'),
+      'valueChange',
+      true,
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          'No se pudieron actualizar los recordatorios de agua. Comprueba los permisos e inténtalo de nuevo.',
+        ),
+      ).toBeTruthy(),
+    );
+    expect(screen.getByText('Inactivos')).toBeTruthy();
+    expect(screen.getByTestId('water-enabled-switch').props.value).toBe(false);
+
+    notifications.failScheduling = false;
+    await fireEvent(
+      screen.getByTestId('water-enabled-switch'),
+      'valueChange',
+      true,
+    );
+    await waitFor(() => expect(screen.getByText('Activos')).toBeTruthy());
+    expect(notifications.scheduled.size).toBe(8);
+  });
+
   it('reports a recoverable error when reprogramming cannot cancel every previous reminder', async () => {
     const notifications = new ControlledWaterNotifications();
     notifications.permission = 'granted';
@@ -1412,7 +1457,7 @@ describe('Gym Tracker app flow', () => {
         'No se pudo guardar el cambio. Tus datos anteriores siguen intactos.',
       ),
     ).toBeTruthy();
-    expect(notifications.scheduled.size).toBe(8);
+    expect(notifications.scheduled.size).toBe(0);
   });
 
   it('explains denied notification permission without enabling water reminders', async () => {
