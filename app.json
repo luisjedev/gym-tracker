@@ -13,12 +13,22 @@
     "plugins": [
       "expo-dev-client",
       "expo-notifications",
-      "expo-video"
+      "expo-video",
+      "react-native-health-connect",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "minSdkVersion": 26
+          }
+        }
+      ]
     ],
     "android": {
       "package": "com.luisjedev.gymtracker",
       "permissions": [
-        "SCHEDULE_EXACT_ALARM"
+        "SCHEDULE_EXACT_ALARM",
+        "android.permission.health.READ_STEPS"
       ],
       "versionCode": 2,
       "adaptiveIcon": {

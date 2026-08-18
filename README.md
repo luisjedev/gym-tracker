@@ -79,6 +79,11 @@ Si la conexión LAN no funciona, se puede intentar un túnel:
 npm start -- --tunnel
 ```
 
+En una development build, Ajustes incluye un panel técnico temporal para validar el flujo
+Mi Fitness → Health Connect → Gym Tracker con permiso de lectura de pasos. El procedimiento,
+las limitaciones y la decisión para la siguiente integración están en
+[la nota de validación de Health Connect](docs/health-connect-validation.md).
+
 ## Generar un APK independiente
 
 El perfil `preview` produce un APK que arranca sin Metro y sirve para pruebas instalables:

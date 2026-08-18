@@ -32,6 +32,12 @@ npx eas-cli@latest build:list --platform android --limit 1
 La salida de EAS contiene el enlace `artifacts.buildUrl`. El perfil `preview` está
 configurado en `eas.json` con `android.buildType: apk` y distribución interna.
 
+## Validar Health Connect en la development build
+
+Para la validación técnica de Mi Fitness → Health Connect → Gym Tracker, sigue
+[la nota de Health Connect](health-connect-validation.md). El panel temporal solo aparece en
+la development build y solicita exclusivamente lectura de pasos.
+
 ## Instalar sin Android Studio, emulador ni Google Play
 
 1. Abre `artifacts.buildUrl` en el navegador del teléfono Android.

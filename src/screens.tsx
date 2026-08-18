@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import Constants, { AppOwnership } from 'expo-constants';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import {
@@ -33,6 +34,7 @@ import {
   type WeeklyGoalStatistics,
 } from './storage/statistics';
 import type { ExerciseMediaSelection } from './media/exerciseMedia';
+import { HealthConnectValidationCard } from './healthConnect/HealthConnectValidationCard';
 import type { WaterPermissionStatus } from './notifications/waterNotifications';
 import { useAppState } from './state/AppStateContext';
 import {
@@ -53,10 +55,9 @@ import {
 } from './storage/schema';
 import type { RootTabParamList } from './navigation/types';
 import { colors } from './theme';
+import { formatNumber } from './formatting';
 
-export function formatNumber(value: number): string {
-  return String(value).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-}
+export { formatNumber } from './formatting';
 
 function parseNonNegativeInteger(value: string): number | null {
   const normalizedValue = value.trim();
@@ -2586,6 +2587,10 @@ export function SettingsScreen() {
       <Text style={styles.introText}>
         Configura los valores locales de tu seguimiento. Ningún dato sale del teléfono.
       </Text>
+
+      {__DEV__ && Constants.appOwnership !== AppOwnership.Expo ? (
+        <HealthConnectValidationCard />
+      ) : null}
 
       <Card testID="settings-overview-card">
         <SettingsSectionHeader
