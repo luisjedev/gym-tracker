@@ -4,6 +4,7 @@ import { AppState } from 'react-native';
 import App from '../App';
 import type { WaterNotificationAdapter, WaterPermissionStatus, WaterReminderTime } from './notifications/waterNotifications';
 import type { StorageAdapter } from './storage/appStorage';
+import { createDefaultState, saveAppState } from './storage/schema';
 
 class MemoryStorage implements StorageAdapter {
   private readonly values = new Map<string, string>();
@@ -1801,5 +1802,99 @@ describe('Gym Tracker app flow', () => {
     await waitFor(() => expect(screen.getByText('Historial de semanas')).toBeTruthy());
     expect(screen.getByText('Semana del lunes 03/08/2026')).toBeTruthy();
     expect(screen.getByText('Grupos musculares: Pecho, Hombro, Tríceps')).toBeTruthy();
+  });
+
+  it('shows understandable empty progress values without dividing by zero', async () => {
+    const storage = new MemoryStorage();
+
+    await render(<App storage={storage} now={() => new Date(2026, 7, 17)} />);
+    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
+    await fireEvent.press(screen.getByRole('button', { name: /Historial/ }));
+
+    await waitFor(() => expect(screen.getByText('Progreso')).toBeTruthy());
+    expect(screen.getByText('Días con objetivo cumplido: Sin datos')).toBeTruthy();
+    expect(screen.getByText('Media de pasos: Sin datos')).toBeTruthy();
+    expect(screen.getByText('Semanas de fuerza cumplidas: Sin datos')).toBeTruthy();
+    expect(screen.getByText('Semanas de HEAT cumplidas: Sin datos')).toBeTruthy();
+    expect(screen.getByText('Último ayuno: Sin ayunos finalizados')).toBeTruthy();
+    expect(screen.getByText('Cumplimiento general: Sin datos')).toBeTruthy();
+  });
+
+  it('summarizes partial activity with saved goals from each historical period', async () => {
+    const storage = new MemoryStorage();
+    const now = new Date(2026, 7, 16, 12);
+    const state = createDefaultState(now);
+    const firstSession = state.settings.strengthSessions[0];
+    const secondSession = state.settings.strengthSessions[1];
+    const thirdSession = state.settings.strengthSessions[2];
+
+    state.dailyRecords = {
+      '2026-08-15': {
+        date: '2026-08-15',
+        steps: 8_000,
+        stepGoal: 7_000,
+      },
+      '2026-08-16': {
+        date: '2026-08-16',
+        steps: 10_000,
+        stepGoal: 8_000,
+      },
+    };
+    state.weeklyRecords = {
+      '2026-08-03': {
+        weekStart: '2026-08-03',
+        strengthGoal: 3,
+        strengthSessions: [
+          { ...firstSession, completed: true },
+          { ...secondSession, completed: true },
+          { ...thirdSession, completed: false },
+        ],
+        heatGoal: 1,
+        heatCompleted: 1,
+      },
+      '2026-08-10': {
+        weekStart: '2026-08-10',
+        strengthGoal: 1,
+        strengthSessions: [{ ...firstSession, completed: true }],
+        heatGoal: 2,
+        heatCompleted: 1,
+      },
+    };
+    state.fasting.active = {
+      startedAt: '2026-08-16T08:00:00.000Z',
+    };
+    state.fasting.completed = [
+      {
+        id: 'fasting-old',
+        startedAt: '2026-08-10T08:00:00.000Z',
+        endedAt: '2026-08-10T09:00:00.000Z',
+        durationMinutes: 60,
+      },
+      {
+        id: 'fasting-last',
+        startedAt: '2026-08-16T08:00:00.000Z',
+        endedAt: '2026-08-16T10:05:00.000Z',
+        durationMinutes: 125,
+      },
+    ];
+    await saveAppState(storage, state);
+
+    await render(<App storage={storage} now={() => now} />);
+    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
+    await fireEvent.press(screen.getByRole('button', { name: /Historial/ }));
+
+    await waitFor(() => expect(screen.getByText('Progreso')).toBeTruthy());
+    expect(screen.getByText('Días con objetivo cumplido: 2')).toBeTruthy();
+    expect(screen.getByText('Media de pasos: 9.000 pasos')).toBeTruthy();
+    expect(screen.getByText('Entrenamientos de fuerza por semana')).toBeTruthy();
+    expect(screen.getByText('Sesiones de fuerza realizadas: 3')).toBeTruthy();
+    expect(screen.getByText('Semanas de fuerza cumplidas: 1 de 2 (50%)')).toBeTruthy();
+    expect(screen.getByText('Sesiones HEAT realizadas: 2')).toBeTruthy();
+    expect(screen.getByText('Semanas de HEAT cumplidas: 1 de 2 (50%)')).toBeTruthy();
+    expect(screen.getByText('Último ayuno: 2 h 5 min')).toBeTruthy();
+    expect(screen.getByText('Media de ayunos: 1 h 33 min')).toBeTruthy();
+    expect(screen.getByText('Ayuno activo')).toBeTruthy();
+    expect(screen.getByText('Cumplimiento general: 67%')).toBeTruthy();
+    expect(screen.getByText('Unidades cumplidas: 4 de 6')).toBeTruthy();
   });
 });

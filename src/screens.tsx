@@ -21,6 +21,10 @@ import {
   getHistoryFastings,
   getHistoryWeeks,
 } from './storage/history';
+import {
+  getProgressStatistics,
+  type WeeklyGoalStatistics,
+} from './storage/statistics';
 import { useAppState } from './state/AppStateContext';
 import {
   DEFAULT_WATER_SETTINGS,
@@ -1580,6 +1584,139 @@ function WeeklyHistoryCard({
   );
 }
 
+function formatStatisticsPercentage(percentage: number | null): string {
+  return percentage === null ? 'Sin datos' : `${percentage}%`;
+}
+
+function WeeklyProgressSummary({
+  metric,
+  statistics,
+  title,
+}: {
+  metric: 'strength' | 'heat';
+  statistics: WeeklyGoalStatistics;
+  title: string;
+}) {
+  const completedWeeksLabel =
+    statistics.evaluatedWeeks === 0
+      ? 'Sin datos'
+      : `${statistics.completedWeeks} de ${statistics.evaluatedWeeks} (${formatStatisticsPercentage(
+          statistics.percentage,
+        )})`;
+  const labels =
+    metric === 'strength'
+      ? {
+          sessions: 'Sesiones de fuerza realizadas',
+          weeks: 'Semanas de fuerza cumplidas',
+        }
+      : {
+          sessions: 'Sesiones HEAT realizadas',
+          weeks: 'Semanas de HEAT cumplidas',
+        };
+
+  return (
+    <View style={styles.statisticsBlock}>
+      <Text style={styles.libraryTitle}>{title}</Text>
+      <Text style={styles.supportText}>
+        {labels.sessions}: {formatNumber(statistics.completedSessions)}
+      </Text>
+      <Text style={styles.supportText}>
+        {labels.weeks}: {completedWeeksLabel}
+      </Text>
+      {statistics.weeklyProgress.length === 0 ? (
+        <Text style={styles.emptyText}>Sin semanas registradas.</Text>
+      ) : (
+        <View style={styles.statisticsList}>
+          {statistics.weeklyProgress.map((week) => (
+            <Text
+              key={`${metric}-${week.weekStart}`}
+              style={styles.emptyText}
+            >
+              Semana del lunes {formatHistoryDate(week.weekStart)}:{' '}
+              {formatNumber(week.completedSessions)} sesiones de un objetivo de{' '}
+              {formatNumber(week.goalSessions)}
+            </Text>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
+function ProgressSummary({
+  statistics,
+}: {
+  statistics: ReturnType<typeof getProgressStatistics>;
+}) {
+  const stepDaysLabel =
+    statistics.steps.recordedDays === 0
+      ? 'Sin datos'
+      : formatNumber(statistics.steps.completedDays);
+  const averageStepsLabel =
+    statistics.steps.averageSteps === null
+      ? 'Sin datos'
+      : `${formatNumber(statistics.steps.averageSteps)} pasos`;
+  const lastFastingLabel =
+    statistics.fasting.lastDurationMinutes === null
+      ? 'Sin ayunos finalizados'
+      : formatFastingDuration(statistics.fasting.lastDurationMinutes);
+  const averageFastingLabel =
+    statistics.fasting.averageDurationMinutes === null
+      ? 'Sin ayunos finalizados'
+      : formatFastingDuration(statistics.fasting.averageDurationMinutes);
+  const complianceUnitsLabel =
+    statistics.compliance.evaluableUnits === 0
+      ? 'Sin unidades evaluables'
+      : `${formatNumber(statistics.compliance.completedUnits)} de ${formatNumber(
+          statistics.compliance.evaluableUnits,
+        )}`;
+
+  return (
+    <Card>
+      <Text style={styles.libraryTitle}>Progreso</Text>
+      <View style={styles.statisticsBlock}>
+        <SectionLabel>Pasos</SectionLabel>
+        <Text style={styles.supportText}>
+          Días con objetivo cumplido: {stepDaysLabel}
+        </Text>
+        <Text style={styles.supportText}>
+          Días con pasos registrados: {formatNumber(statistics.steps.recordedDays)}
+        </Text>
+        <Text style={styles.supportText}>Media de pasos: {averageStepsLabel}</Text>
+      </View>
+
+      <WeeklyProgressSummary
+        metric="strength"
+        statistics={statistics.strength}
+        title="Entrenamientos de fuerza por semana"
+      />
+      <WeeklyProgressSummary
+        metric="heat"
+        statistics={statistics.heat}
+        title="Sesiones HEAT por semana"
+      />
+
+      <View style={styles.statisticsBlock}>
+        <SectionLabel>Ayunos</SectionLabel>
+        <Text style={styles.supportText}>Último ayuno: {lastFastingLabel}</Text>
+        <Text style={styles.supportText}>Media de ayunos: {averageFastingLabel}</Text>
+        <Text style={styles.emptyText}>
+          El ayuno no participa en el cumplimiento general porque no hay un objetivo
+          de duración configurado.
+        </Text>
+      </View>
+
+      <View style={styles.statisticsBlock}>
+        <SectionLabel>Cumplimiento general</SectionLabel>
+        <Text style={styles.metricText}>
+          Cumplimiento general: {formatStatisticsPercentage(statistics.compliance.percentage)}
+        </Text>
+        <Text style={styles.supportText}>Unidades cumplidas: {complianceUnitsLabel}</Text>
+      </View>
+    </Card>
+  );
+}
+
 export function HistoryScreen() {
   const { state, currentTime } = useAppState();
 
@@ -1601,10 +1738,16 @@ export function HistoryScreen() {
     completedFastings.length > 0 ||
     hasWeeklyHistory;
   const showWeeklyHistory = historyWeeks.length > 0 && hasHistory;
+  const statistics = getProgressStatistics(
+    hasHistory ? historyDays : [],
+    hasHistory ? historyWeeks : [],
+    hasHistory ? completedFastings : [],
+  );
 
   if (!hasHistory) {
     return (
       <Screen title="Historial">
+        <ProgressSummary statistics={statistics} />
         <Card>
           <Text style={styles.emptyTitle}>Aún no hay historial</Text>
           <Text style={styles.emptyText}>
@@ -1625,6 +1768,7 @@ export function HistoryScreen() {
 
   return (
     <Screen title="Historial">
+      <ProgressSummary statistics={statistics} />
       {showWeeklyHistory ? (
         <Card>
           <Text style={styles.libraryTitle}>Historial de semanas</Text>
@@ -2352,6 +2496,12 @@ const styles = StyleSheet.create({
   },
   weeklyProgressBlock: {
     gap: 6,
+  },
+  statisticsBlock: {
+    gap: 6,
+  },
+  statisticsList: {
+    gap: 4,
   },
   weeklySessionList: {
     gap: 8,

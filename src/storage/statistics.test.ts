@@ -1,0 +1,173 @@
+import { getProgressStatistics } from './statistics';
+import type { CompletedFasting, DailyRecord, WeeklyRecord } from './schema';
+
+function createDay(
+  date: string,
+  steps: number | null,
+  stepGoal: number,
+): DailyRecord {
+  return { date, steps, stepGoal };
+}
+
+function createWeek(
+  weekStart: string,
+  strengthGoal: number,
+  strengthCompleted: number,
+  heatGoal: number,
+  heatCompleted: number,
+): WeeklyRecord {
+  return {
+    weekStart,
+    strengthGoal,
+    strengthSessions: Array.from({ length: strengthCompleted }, (_, index) => ({
+      id: `${weekStart}-strength-${index}`,
+      name: `Sesión ${index + 1}`,
+      muscleGroupIds: [],
+      completed: true,
+    })),
+    heatGoal,
+    heatCompleted,
+  };
+}
+
+function createFasting(
+  id: string,
+  endedAt: string,
+  durationMinutes: number,
+): CompletedFasting {
+  return {
+    id,
+    startedAt: '2026-08-01T08:00:00.000Z',
+    endedAt,
+    durationMinutes,
+  };
+}
+
+describe('progress statistics', () => {
+  it('returns empty values without inventing averages or a compliance percentage', () => {
+    const statistics = getProgressStatistics([], [], []);
+
+    expect(statistics.steps).toEqual({
+      recordedDays: 0,
+      completedDays: 0,
+      averageSteps: null,
+    });
+    expect(statistics.strength).toEqual({
+      evaluatedWeeks: 0,
+      completedWeeks: 0,
+      completedSessions: 0,
+      percentage: null,
+      weeklyProgress: [],
+    });
+    expect(statistics.heat).toEqual({
+      evaluatedWeeks: 0,
+      completedWeeks: 0,
+      completedSessions: 0,
+      percentage: null,
+      weeklyProgress: [],
+    });
+    expect(statistics.fasting).toEqual({
+      completedFastings: 0,
+      lastDurationMinutes: null,
+      averageDurationMinutes: null,
+    });
+    expect(statistics.compliance).toEqual({
+      completedUnits: 0,
+      evaluableUnits: 0,
+      percentage: null,
+    });
+  });
+
+  it('uses registered step values, historical weekly goals, and completed fasts only', () => {
+    const statistics = getProgressStatistics(
+      [
+        createDay('2026-08-16', null, 7_000),
+        createDay('2026-08-17', 7_000, 7_000),
+        createDay('2026-08-18', 10_000, 8_000),
+        createDay('2026-08-19', 3_000, 7_000),
+      ],
+      [
+        createWeek('2026-08-03', 3, 2, 1, 1),
+        createWeek('2026-08-10', 1, 1, 2, 1),
+      ],
+      [
+        createFasting('fasting-old', '2026-08-10T10:00:00.000Z', 60),
+        createFasting('fasting-last', '2026-08-19T10:00:00.000Z', 125),
+      ],
+    );
+
+    expect(statistics.steps).toEqual({
+      recordedDays: 3,
+      completedDays: 2,
+      averageSteps: 6_667,
+    });
+    expect(statistics.strength).toEqual({
+      evaluatedWeeks: 2,
+      completedWeeks: 1,
+      completedSessions: 3,
+      percentage: 50,
+      weeklyProgress: [
+        {
+          weekStart: '2026-08-03',
+          completedSessions: 2,
+          goalSessions: 3,
+          goalMet: false,
+        },
+        {
+          weekStart: '2026-08-10',
+          completedSessions: 1,
+          goalSessions: 1,
+          goalMet: true,
+        },
+      ],
+    });
+    expect(statistics.heat).toEqual({
+      evaluatedWeeks: 2,
+      completedWeeks: 1,
+      completedSessions: 2,
+      percentage: 50,
+      weeklyProgress: [
+        {
+          weekStart: '2026-08-03',
+          completedSessions: 1,
+          goalSessions: 1,
+          goalMet: true,
+        },
+        {
+          weekStart: '2026-08-10',
+          completedSessions: 1,
+          goalSessions: 2,
+          goalMet: false,
+        },
+      ],
+    });
+    expect(statistics.fasting).toEqual({
+      completedFastings: 2,
+      lastDurationMinutes: 125,
+      averageDurationMinutes: 93,
+    });
+    expect(statistics.compliance).toEqual({
+      completedUnits: 4,
+      evaluableUnits: 8,
+      percentage: 50,
+    });
+  });
+
+  it('counts values at or above their saved objective as fulfilled', () => {
+    const statistics = getProgressStatistics(
+      [createDay('2026-08-20', 8_500, 7_000)],
+      [createWeek('2026-08-17', 1, 2, 1, 1)],
+      [],
+    );
+
+    expect(statistics.steps.completedDays).toBe(1);
+    expect(statistics.strength.completedWeeks).toBe(1);
+    expect(statistics.strength.completedSessions).toBe(2);
+    expect(statistics.heat.completedWeeks).toBe(1);
+    expect(statistics.compliance).toEqual({
+      completedUnits: 3,
+      evaluableUnits: 3,
+      percentage: 100,
+    });
+  });
+});
