@@ -4,12 +4,19 @@ import {
   type AppStateProviderProps,
 } from './src/state/AppStateContext';
 
-export type AppProps = Pick<AppStateProviderProps, 'storage' | 'now' | 'notifications'> &
-  Record<string, unknown>;
+export type AppProps = Pick<
+  AppStateProviderProps,
+  'media' | 'storage' | 'now' | 'notifications'
+> & Record<string, unknown>;
 
-export default function App({ storage, now, notifications }: AppProps = {}) {
+export default function App({ media, storage, now, notifications }: AppProps = {}) {
   return (
-    <AppStateProvider now={now} notifications={notifications} storage={storage}>
+    <AppStateProvider
+      media={media}
+      now={now}
+      notifications={notifications}
+      storage={storage}
+    >
       <AppNavigator />
     </AppStateProvider>
   );

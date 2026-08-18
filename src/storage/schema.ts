@@ -328,6 +328,44 @@ function isValidCompletedFasting(value: unknown): value is CompletedFasting {
   return Date.parse(value.endedAt) >= Date.parse(value.startedAt);
 }
 
+function isOptionalNonNegativeNumber(value: unknown): boolean {
+  return (
+    value === undefined ||
+    (typeof value === 'number' && Number.isFinite(value) && value >= 0)
+  );
+}
+
+function isValidMediaItem(value: unknown): value is MediaItem {
+  return (
+    isRecord(value) &&
+    typeof value.id === 'string' &&
+    value.id.length > 0 &&
+    (value.type === 'image' || value.type === 'video') &&
+    typeof value.uri === 'string' &&
+    value.uri.length > 0 &&
+    isOptionalNonNegativeNumber(value.width) &&
+    isOptionalNonNegativeNumber(value.height) &&
+    isOptionalNonNegativeNumber(value.duration)
+  );
+}
+
+function isValidExercise(value: unknown): value is Exercise {
+  return (
+    isRecord(value) &&
+    typeof value.id === 'string' &&
+    value.id.length > 0 &&
+    typeof value.name === 'string' &&
+    value.name.length > 0 &&
+    typeof value.muscleGroupId === 'string' &&
+    value.muscleGroupId.length > 0 &&
+    typeof value.description === 'string' &&
+    Array.isArray(value.media) &&
+    value.media.every(isValidMediaItem) &&
+    isValidTimestamp(value.createdAt) &&
+    isValidTimestamp(value.updatedAt)
+  );
+}
+
 function isValidDailyRecord(value: unknown): value is DailyRecord {
   return (
     isRecord(value) &&
@@ -370,6 +408,7 @@ function isValidState(value: unknown): value is AppState {
     isValidWaterSettings(settings.water) &&
     Array.isArray(value.muscleGroups) &&
     Array.isArray(value.exercises) &&
+    value.exercises.every(isValidExercise) &&
     isRecord(value.dailyRecords) &&
     Object.values(value.dailyRecords).every(isValidDailyRecord) &&
     isRecord(value.weeklyRecords) &&

@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import {
+  Image,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -10,6 +12,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { VideoView, useVideoPlayer } from 'expo-video';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { calculateFastingDurationMinutes, getAverageFastingDurationMinutes } from './storage/fasting';
@@ -19,6 +22,7 @@ import {
   formatDateKey,
   sortExercises,
   type Exercise,
+  type MediaItem,
   type MuscleGroup,
   type StrengthSession,
   type StrengthSessionInput,
@@ -554,14 +558,172 @@ export function HomeScreen() {
   );
 }
 
+function getMediaTypeLabel(type: MediaItem['type']): string {
+  return type === 'image' ? 'imagen' : 'vídeo';
+}
+
+function MissingMediaState() {
+  return (
+    <View style={styles.missingMediaState}>
+      <Text style={styles.missingMediaTitle}>Archivo no disponible</Text>
+      <Text style={styles.missingMediaText}>
+        Elimina esta referencia y vuelve a seleccionar el archivo.
+      </Text>
+    </View>
+  );
+}
+
+function ImageMediaViewer({ media }: { media: MediaItem }) {
+  const [isUnavailable, setIsUnavailable] = useState(false);
+
+  if (isUnavailable) {
+    return <MissingMediaState />;
+  }
+
+  return (
+    <Image
+      accessibilityLabel="Imagen multimedia abierta"
+      onError={() => setIsUnavailable(true)}
+      resizeMode="contain"
+      source={{ uri: media.uri }}
+      style={styles.mediaViewerImage}
+    />
+  );
+}
+
+function VideoMediaViewer({ media }: { media: MediaItem }) {
+  const player = useVideoPlayer(media.uri);
+  const [isUnavailable, setIsUnavailable] = useState(() => player.status === 'error');
+
+  useEffect(() => {
+    const subscription = player.addListener('statusChange', ({ status }) => {
+      if (status === 'error') {
+        setIsUnavailable(true);
+      }
+    });
+
+    return () => subscription.remove();
+  }, [player]);
+
+  if (isUnavailable) {
+    return <MissingMediaState />;
+  }
+
+  return (
+    <VideoView
+      contentFit="contain"
+      nativeControls
+      player={player}
+      style={styles.mediaViewerVideo}
+    />
+  );
+}
+
+function ExerciseMediaViewer({
+  media,
+  onClose,
+}: {
+  media: MediaItem;
+  onClose: () => void;
+}) {
+  return (
+    <Modal
+      accessibilityViewIsModal
+      animationType="fade"
+      onRequestClose={onClose}
+      transparent
+      visible
+    >
+      <View style={styles.mediaViewerBackdrop}>
+        <View style={styles.mediaViewerCard}>
+          {media.type === 'image' ? (
+            <ImageMediaViewer media={media} />
+          ) : (
+            <VideoMediaViewer media={media} />
+          )}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Cerrar visor multimedia"
+            onPress={onClose}
+            style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}
+          >
+            <Text style={styles.secondaryButtonText}>Cerrar</Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function ExerciseMediaPreview({
+  index,
+  media,
+  onOpen,
+  onRemove,
+}: {
+  index: number;
+  media: MediaItem;
+  onOpen: () => void;
+  onRemove: () => void;
+}) {
+  const [isImageUnavailable, setIsImageUnavailable] = useState(false);
+  const mediaLabel = getMediaTypeLabel(media.type);
+  const position = index + 1;
+
+  return (
+    <View style={styles.mediaPreviewCard}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={
+          media.type === 'image'
+            ? `Abrir imagen ${position}`
+            : `Reproducir vídeo ${position}`
+        }
+        onPress={onOpen}
+        style={({ pressed }) => [styles.mediaPreviewButton, pressed && styles.pressed]}
+      >
+        {media.type === 'image' && !isImageUnavailable ? (
+          <Image
+            accessibilityLabel={`Miniatura de imagen ${position}`}
+            onError={() => setIsImageUnavailable(true)}
+            source={{ uri: media.uri }}
+            style={styles.mediaThumbnail}
+            testID={`exercise-media-image-${position}`}
+          />
+        ) : media.type === 'image' ? (
+          <MissingMediaState />
+        ) : (
+          <View style={styles.videoThumbnail}>
+            <Text style={styles.videoThumbnailIcon}>▶</Text>
+            <Text style={styles.videoThumbnailText}>Vídeo</Text>
+          </View>
+        )}
+      </Pressable>
+      <Text style={styles.mediaTypeText}>
+        {mediaLabel[0].toUpperCase() + mediaLabel.slice(1)} {position}
+      </Text>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Eliminar ${mediaLabel} ${position}`}
+        onPress={onRemove}
+        style={({ pressed }) => [styles.smallDangerButton, pressed && styles.pressed]}
+      >
+        <Text style={styles.smallDangerButtonText}>Eliminar</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 export function ExercisesScreen() {
   const {
     state,
+    addExerciseMedia,
     createExercise,
     createMuscleGroup,
     deleteExercise,
     deleteMuscleGroup,
     errorMessage,
+    removeExerciseMedia,
     updateExercise,
     updateMuscleGroup,
   } = useAppState();
@@ -586,6 +748,9 @@ export function ExercisesScreen() {
   const [exerciseEditGroupId, setExerciseEditGroupId] = useState<string | null>(null);
   const [exerciseEditError, setExerciseEditError] = useState<string | null>(null);
   const [exerciseActionError, setExerciseActionError] = useState<string | null>(null);
+  const [mediaActionError, setMediaActionError] = useState<string | null>(null);
+  const [mediaSuccessMessage, setMediaSuccessMessage] = useState<string | null>(null);
+  const [selectedMediaId, setSelectedMediaId] = useState<string | null>(null);
   const [isExerciseDeleteConfirmationVisible, setIsExerciseDeleteConfirmationVisible] = useState(false);
   const [groupEditId, setGroupEditId] = useState<string | null>(null);
   const [groupEditName, setGroupEditName] = useState('');
@@ -611,6 +776,9 @@ export function ExercisesScreen() {
   const selectedExerciseGroup = selectedExercise
     ? state.muscleGroups.find((group) => group.id === selectedExercise.muscleGroupId)
     : null;
+  const selectedMedia = selectedExercise?.media.find(
+    (mediaItem) => mediaItem.id === selectedMediaId,
+  );
 
   async function handleCreateGroup() {
     setGroupValidationError(null);
@@ -779,6 +947,43 @@ export function ExercisesScreen() {
     }
   }
 
+  async function handleAddExerciseMedia() {
+    if (!selectedExercise) {
+      return;
+    }
+
+    setMediaActionError(null);
+    setMediaSuccessMessage(null);
+
+    try {
+      await addExerciseMedia(selectedExercise.id);
+      setMediaSuccessMessage('Multimedia guardada');
+    } catch (error) {
+      setMediaActionError(
+        error instanceof Error ? error.message : 'No se pudo guardar la multimedia.',
+      );
+    }
+  }
+
+  async function handleRemoveExerciseMedia(mediaId: string) {
+    if (!selectedExercise) {
+      return;
+    }
+
+    setMediaActionError(null);
+    setMediaSuccessMessage(null);
+
+    try {
+      await removeExerciseMedia(selectedExercise.id, mediaId);
+      setSelectedMediaId(null);
+      setMediaSuccessMessage('Multimedia eliminada');
+    } catch (error) {
+      setMediaActionError(
+        error instanceof Error ? error.message : 'No se pudo eliminar la multimedia.',
+      );
+    }
+  }
+
   function requestExerciseDeletion() {
     setExerciseActionError(null);
     setIsExerciseEditVisible(false);
@@ -795,6 +1000,7 @@ export function ExercisesScreen() {
     try {
       await deleteExercise(selectedExercise.id);
       setSelectedExerciseId(null);
+      setSelectedMediaId(null);
       setIsExerciseDeleteConfirmationVisible(false);
       setExerciseSuccessMessage('Ejercicio eliminado');
     } catch (error) {
@@ -884,6 +1090,48 @@ export function ExercisesScreen() {
                   <Text style={styles.supportText}>{selectedExercise.description}</Text>
                 </>
               ) : null}
+              <SectionLabel>Multimedia</SectionLabel>
+              <Text style={styles.supportText}>
+                {selectedExercise.media.length === 0
+                  ? 'Sin imágenes ni vídeos asociados.'
+                  : `${selectedExercise.media.length} elementos multimedia`}
+              </Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Añadir imágenes y vídeos"
+                onPress={() => void handleAddExerciseMedia()}
+                style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
+              >
+                <Text style={styles.primaryButtonText}>Añadir imágenes y vídeos</Text>
+              </Pressable>
+              {mediaActionError ? (
+                <Text accessibilityRole="alert" style={styles.errorText}>
+                  {mediaActionError}
+                </Text>
+              ) : null}
+              {mediaSuccessMessage ? (
+                <Text style={styles.successText}>{mediaSuccessMessage}</Text>
+              ) : null}
+              {selectedExercise.media.length > 0 ? (
+                <View style={styles.mediaPreviewList}>
+                  {selectedExercise.media.map((mediaItem, index) => (
+                    <ExerciseMediaPreview
+                      index={index}
+                      key={mediaItem.id}
+                      media={mediaItem}
+                      onOpen={() => setSelectedMediaId(mediaItem.id)}
+                      onRemove={() => void handleRemoveExerciseMedia(mediaItem.id)}
+                    />
+                  ))}
+                </View>
+              ) : null}
+              {selectedMedia ? (
+                <ExerciseMediaViewer
+                  key={selectedMedia.id}
+                  media={selectedMedia}
+                  onClose={() => setSelectedMediaId(null)}
+                />
+              ) : null}
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Editar ejercicio"
@@ -936,6 +1184,7 @@ export function ExercisesScreen() {
             accessibilityLabel="Volver a ejercicios"
             onPress={() => {
               setSelectedExerciseId(null);
+              setSelectedMediaId(null);
               setIsExerciseEditVisible(false);
               setIsExerciseDeleteConfirmationVisible(false);
             }}
@@ -1902,6 +2151,99 @@ const styles = StyleSheet.create({
   exerciseList: {
     gap: 8,
     marginTop: 4,
+  },
+  mediaPreviewList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  mediaPreviewCard: {
+    alignItems: 'center',
+    borderColor: '#DCE8DF',
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 6,
+    padding: 8,
+    width: 148,
+  },
+  mediaPreviewButton: {
+    alignItems: 'center',
+    borderRadius: 8,
+    height: 112,
+    justifyContent: 'center',
+    overflow: 'hidden',
+    width: 128,
+  },
+  mediaThumbnail: {
+    height: 112,
+    width: 128,
+  },
+  videoThumbnail: {
+    alignItems: 'center',
+    backgroundColor: '#E9F4EC',
+    flex: 1,
+    justifyContent: 'center',
+    width: '100%',
+  },
+  videoThumbnailIcon: {
+    color: '#287A4D',
+    fontSize: 28,
+    fontWeight: '800',
+  },
+  videoThumbnailText: {
+    color: '#287A4D',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  mediaTypeText: {
+    color: '#526158',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  missingMediaState: {
+    alignItems: 'center',
+    backgroundColor: '#F4F7F5',
+    flex: 1,
+    gap: 4,
+    justifyContent: 'center',
+    padding: 8,
+    width: '100%',
+  },
+  missingMediaTitle: {
+    color: '#7A271A',
+    fontSize: 13,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  missingMediaText: {
+    color: '#526158',
+    fontSize: 12,
+    lineHeight: 16,
+    textAlign: 'center',
+  },
+  mediaViewerBackdrop: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(20, 37, 27, 0.86)',
+    flex: 1,
+    justifyContent: 'center',
+    padding: 20,
+  },
+  mediaViewerCard: {
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    gap: 14,
+    maxHeight: '90%',
+    padding: 14,
+    width: '100%',
+  },
+  mediaViewerImage: {
+    height: 360,
+    width: '100%',
+  },
+  mediaViewerVideo: {
+    height: 260,
+    width: '100%',
   },
   exerciseRow: {
     alignItems: 'center',

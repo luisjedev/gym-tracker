@@ -127,4 +127,34 @@ describe('versioned local app state', () => {
       'La versión de los datos guardados no es compatible.',
     );
   });
+
+  it('rejects persisted exercise media without a private URI', async () => {
+    const now = new Date(2026, 7, 17, 12, 0, 0);
+    const storage = new MemoryStorage();
+    await saveAppState(storage, createDefaultState(now));
+
+    const payload = JSON.parse(storage.value ?? '{}');
+    payload.state.exercises = [
+      {
+        id: 'exercise-1',
+        name: 'Sentadilla',
+        muscleGroupId: 'piernas',
+        description: '',
+        media: [
+          {
+            id: 'media-1',
+            type: 'image',
+            uri: '',
+          },
+        ],
+        createdAt: '2026-08-17T10:00:00.000Z',
+        updatedAt: '2026-08-17T10:00:00.000Z',
+      },
+    ];
+    storage.value = JSON.stringify(payload);
+
+    await expect(loadAppState(storage, now)).rejects.toThrow(
+      'La versión de los datos guardados no es compatible.',
+    );
+  });
 });

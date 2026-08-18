@@ -12,6 +12,11 @@ import { AppState as ReactNativeAppState } from 'react-native';
 
 import { calculateFastingDurationMinutes } from '../storage/fasting';
 import {
+  defaultExerciseMediaAdapter,
+  type ExerciseMediaAdapter,
+  type ExerciseMediaCopy,
+} from '../media/exerciseMedia';
+import {
   defaultWaterNotificationAdapter,
   getWaterReminderTimes,
   validateWaterSettings,
@@ -30,6 +35,7 @@ import {
   saveAppState,
   type AppState,
   type DailyRecord,
+  type MediaItem,
   type NewExerciseInput,
   type StrengthSession,
   type StrengthSessionInput,
@@ -67,6 +73,8 @@ export interface AppStateContextValue {
   createExercise(input: NewExerciseInput): Promise<void>;
   updateExercise(id: string, input: NewExerciseInput): Promise<void>;
   deleteExercise(id: string): Promise<void>;
+  addExerciseMedia(id: string): Promise<void>;
+  removeExerciseMedia(id: string, mediaId: string): Promise<void>;
   retry(): void;
 }
 
@@ -74,6 +82,7 @@ export interface AppStateProviderProps extends PropsWithChildren {
   storage?: StorageAdapter;
   now?: NowProvider;
   notifications?: WaterNotificationAdapter;
+  media?: ExerciseMediaAdapter;
 }
 
 const defaultNow: NowProvider = () => new Date();
@@ -221,6 +230,7 @@ export function AppStateProvider({
   storage = defaultStorage,
   now = defaultNow,
   notifications = defaultWaterNotificationAdapter,
+  media = defaultExerciseMediaAdapter,
 }: AppStateProviderProps) {
   const [state, setState] = useState<AppState | null>(null);
   const [status, setStatus] = useState<AppLoadStatus>('loading');
@@ -235,6 +245,7 @@ export function AppStateProvider({
   const heatMutationQueueRef = useRef(Promise.resolve());
   const fastingMutationQueueRef = useRef(Promise.resolve());
   const waterMutationQueueRef = useRef(Promise.resolve());
+  const exerciseMutationQueueRef = useRef(Promise.resolve());
 
   const load = useCallback(
     async (isInitialLoad: boolean) => {
@@ -774,85 +785,245 @@ export function AppStateProvider({
   );
 
   const createExercise = useCallback(
-    async (input: NewExerciseInput) => {
-      const currentState = stateRef.current;
-      if (!currentState) {
-        throw new Error('Los datos todavía se están cargando.');
-      }
+    (input: NewExerciseInput) => {
+      const operation = exerciseMutationQueueRef.current.then(async () => {
+        const currentState = stateRef.current;
+        if (!currentState) {
+          throw new Error('Los datos todavía se están cargando.');
+        }
 
-      const normalizedInput = normalizeExerciseInput(currentState, input);
-      const timestamp = now().toISOString();
-      const nextExercise = {
-        id: createUniqueId(
-          'exercise',
-          currentState.exercises.map((exercise) => exercise.id),
-        ),
-        name: normalizedInput.name,
-        muscleGroupId: normalizedInput.muscleGroupId,
-        description: normalizedInput.description ?? '',
-        media: [],
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      };
+        const normalizedInput = normalizeExerciseInput(currentState, input);
+        const timestamp = now().toISOString();
+        const nextExercise = {
+          id: createUniqueId(
+            'exercise',
+            currentState.exercises.map((exercise) => exercise.id),
+          ),
+          name: normalizedInput.name,
+          muscleGroupId: normalizedInput.muscleGroupId,
+          description: normalizedInput.description ?? '',
+          media: [],
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        };
 
-      await persistState({
-        ...currentState,
-        exercises: [...currentState.exercises, nextExercise],
+        await persistState({
+          ...currentState,
+          exercises: [...currentState.exercises, nextExercise],
+        });
       });
+      exerciseMutationQueueRef.current = operation.catch(() => undefined);
+      return operation;
     },
     [now, persistState],
   );
 
   const updateExercise = useCallback(
-    async (id: string, input: NewExerciseInput) => {
-      const currentState = stateRef.current;
-      if (!currentState) {
-        throw new Error('Los datos todavía se están cargando.');
-      }
+    (id: string, input: NewExerciseInput) => {
+      const operation = exerciseMutationQueueRef.current.then(async () => {
+        const currentState = stateRef.current;
+        if (!currentState) {
+          throw new Error('Los datos todavía se están cargando.');
+        }
 
-      const existingExercise = currentState.exercises.find(
-        (exercise) => exercise.id === id,
-      );
-      if (!existingExercise) {
-        throw new Error('No se encontró el ejercicio.');
-      }
+        const existingExercise = currentState.exercises.find(
+          (exercise) => exercise.id === id,
+        );
+        if (!existingExercise) {
+          throw new Error('No se encontró el ejercicio.');
+        }
 
-      const normalizedInput = normalizeExerciseInput(currentState, input);
-      const updatedExercise = {
-        ...existingExercise,
-        name: normalizedInput.name,
-        muscleGroupId: normalizedInput.muscleGroupId,
-        description: normalizedInput.description ?? '',
-        updatedAt: now().toISOString(),
-      };
+        const normalizedInput = normalizeExerciseInput(currentState, input);
+        const updatedExercise = {
+          ...existingExercise,
+          name: normalizedInput.name,
+          muscleGroupId: normalizedInput.muscleGroupId,
+          description: normalizedInput.description ?? '',
+          updatedAt: now().toISOString(),
+        };
 
-      await persistState({
-        ...currentState,
-        exercises: currentState.exercises.map((exercise) =>
-          exercise.id === id ? updatedExercise : exercise,
-        ),
+        await persistState({
+          ...currentState,
+          exercises: currentState.exercises.map((exercise) =>
+            exercise.id === id ? updatedExercise : exercise,
+          ),
+        });
       });
+      exerciseMutationQueueRef.current = operation.catch(() => undefined);
+      return operation;
     },
     [now, persistState],
   );
 
-  const deleteExercise = useCallback(
-    async (id: string) => {
-      const currentState = stateRef.current;
-      if (!currentState) {
-        throw new Error('Los datos todavía se están cargando.');
-      }
+  const addExerciseMedia = useCallback(
+    (id: string) => {
+      const operation = exerciseMutationQueueRef.current.then(async () => {
+        const currentState = stateRef.current;
+        if (!currentState) {
+          throw new Error('Los datos todavía se están cargando.');
+        }
 
-      if (!currentState.exercises.some((exercise) => exercise.id === id)) {
-        throw new Error('No se encontró el ejercicio.');
-      }
+        const exercise = currentState.exercises.find((item) => item.id === id);
+        if (!exercise) {
+          throw new Error('No se encontró el ejercicio.');
+        }
 
-      await persistState({
-        ...currentState,
-        exercises: currentState.exercises.filter((exercise) => exercise.id !== id),
+        const selections = await media.selectMedia();
+        if (selections.length === 0) {
+          return;
+        }
+
+        const copiedMedia: { copy: ExerciseMediaCopy; uri: string }[] = [];
+
+        try {
+          for (const selection of selections) {
+            const copy = await media.copyToPrivateStorage(selection);
+            if (
+              !copy.uri ||
+              (copy.type !== 'image' && copy.type !== 'video')
+            ) {
+              throw new Error('La copia multimedia no devolvió datos válidos.');
+            }
+
+            copiedMedia.push({ copy, uri: copy.uri });
+          }
+
+          const latestState = stateRef.current;
+          const latestExercise = latestState?.exercises.find((item) => item.id === id);
+          if (!latestState || !latestExercise) {
+            throw new Error('No se encontró el ejercicio.');
+          }
+
+          const usedMediaIds = latestState.exercises.flatMap((item) =>
+            item.media.map((mediaItem) => mediaItem.id),
+          );
+          const nextMedia = copiedMedia.map(({ copy }) => {
+            const item: MediaItem = {
+              id: createUniqueId('media', usedMediaIds),
+              type: copy.type,
+              uri: copy.uri,
+              width: copy.width,
+              height: copy.height,
+              duration: copy.duration,
+            };
+            usedMediaIds.push(item.id);
+            return item;
+          });
+
+          await persistState({
+            ...latestState,
+            exercises: latestState.exercises.map((item) =>
+              item.id === id
+                ? {
+                    ...item,
+                    media: [...item.media, ...nextMedia],
+                    updatedAt: now().toISOString(),
+                  }
+                : item,
+            ),
+          });
+        } catch (error) {
+          await Promise.all(
+            copiedMedia.map(async ({ uri }) => {
+              try {
+                await media.deletePrivateCopy(uri);
+              } catch {
+                // Preserve the original selection or persistence error.
+              }
+            }),
+          );
+          throw error;
+        }
       });
+      exerciseMutationQueueRef.current = operation.catch(() => undefined);
+      return operation;
     },
-    [persistState],
+    [media, now, persistState],
+  );
+
+  const removeExerciseMedia = useCallback(
+    (id: string, mediaId: string) => {
+      const operation = exerciseMutationQueueRef.current.then(async () => {
+        const currentState = stateRef.current;
+        if (!currentState) {
+          throw new Error('Los datos todavía se están cargando.');
+        }
+
+        const exercise = currentState.exercises.find((item) => item.id === id);
+        if (!exercise) {
+          throw new Error('No se encontró el ejercicio.');
+        }
+
+        const mediaItem = exercise.media.find((item) => item.id === mediaId);
+        if (!mediaItem) {
+          throw new Error('No se encontró el elemento multimedia.');
+        }
+
+        await persistState({
+          ...currentState,
+          exercises: currentState.exercises.map((item) =>
+            item.id === id
+              ? {
+                  ...item,
+                  media: item.media.filter((candidate) => candidate.id !== mediaId),
+                  updatedAt: now().toISOString(),
+                }
+              : item,
+          ),
+        });
+
+        try {
+          await media.deletePrivateCopy(mediaItem.uri);
+        } catch (error) {
+          throw new Error(
+            'La referencia se eliminó, pero no se pudo limpiar la copia privada.',
+            { cause: error },
+          );
+        }
+      });
+      exerciseMutationQueueRef.current = operation.catch(() => undefined);
+      return operation;
+    },
+    [media, now, persistState],
+  );
+
+  const deleteExercise = useCallback(
+    (id: string) => {
+      const operation = exerciseMutationQueueRef.current.then(async () => {
+        const currentState = stateRef.current;
+        if (!currentState) {
+          throw new Error('Los datos todavía se están cargando.');
+        }
+
+        const exercise = currentState.exercises.find((item) => item.id === id);
+        if (!exercise) {
+          throw new Error('No se encontró el ejercicio.');
+        }
+
+        await persistState({
+          ...currentState,
+          exercises: currentState.exercises.filter((item) => item.id !== id),
+        });
+
+        let cleanupFailed = false;
+        for (const mediaItem of exercise.media) {
+          try {
+            await media.deletePrivateCopy(mediaItem.uri);
+          } catch {
+            cleanupFailed = true;
+          }
+        }
+
+        if (cleanupFailed) {
+          setErrorMessage(
+            'El ejercicio se eliminó, pero no se pudieron limpiar todas sus copias multimedia. Puedes revisar el almacenamiento de la aplicación.',
+          );
+        }
+      });
+      exerciseMutationQueueRef.current = operation.catch(() => undefined);
+      return operation;
+    },
+    [media, persistState],
   );
 
   useEffect(() => {
@@ -994,6 +1165,8 @@ export function AppStateProvider({
       createExercise,
       updateExercise,
       deleteExercise,
+      addExerciseMedia,
+      removeExerciseMedia,
       retry: () => {
         void load(true);
       },
@@ -1002,6 +1175,7 @@ export function AppStateProvider({
       currentDateKey,
       currentTime,
       currentWeekStart,
+      addExerciseMedia,
       createExercise,
       createMuscleGroup,
       deleteExercise,
@@ -1019,6 +1193,7 @@ export function AppStateProvider({
       updateDailyStepGoal,
       updateExercise,
       updateHeatWeeklyGoal,
+      removeExerciseMedia,
       updateStrengthConfiguration,
       updateWaterSettings,
       updateMuscleGroup,
