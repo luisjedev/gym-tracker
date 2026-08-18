@@ -72,11 +72,11 @@ class ControlledExerciseMedia implements ExerciseMediaAdapter {
   }
 }
 
-async function openExerciseDetail(
+async function renderExercises(
   media: ControlledExerciseMedia,
   storage: StorageAdapter,
 ) {
-  await render(
+  const rendered = await render(
     <App
       media={media}
       now={() => new Date(2026, 7, 17, 12)}
@@ -87,6 +87,31 @@ async function openExerciseDetail(
   await fireEvent.press(screen.getByRole('button', { name: /Ejercicios/ }));
   await settleNavigation();
   await waitFor(() => expect(screen.getByText('Biblioteca de ejercicios')).toBeTruthy());
+  return rendered;
+}
+
+async function createExerciseAndOpenDetail(
+  media: ControlledExerciseMedia,
+  storage: StorageAdapter,
+) {
+  const rendered = await renderExercises(media, storage);
+  await fireEvent.press(screen.getByRole('button', { name: 'Crear ejercicio' }));
+  await fireEvent.changeText(screen.getByTestId('exercise-name-input'), 'Sentadilla');
+  await fireEvent.press(
+    screen.getByRole('button', { name: 'Seleccionar grupo Piernas' }),
+  );
+  await fireEvent.press(screen.getByRole('button', { name: 'Guardar ejercicio' }));
+  await fireEvent.press(
+    screen.getByRole('button', { name: 'Abrir detalle de Sentadilla' }),
+  );
+  return rendered;
+}
+
+async function openExerciseDetail(
+  media: ControlledExerciseMedia,
+  storage: StorageAdapter,
+) {
+  await renderExercises(media, storage);
   await waitFor(() =>
     expect(
       screen.getByRole('button', { name: 'Abrir detalle de Sentadilla' }),
@@ -102,24 +127,7 @@ describe('exercise multimedia', () => {
     const storage = new MemoryStorage();
     const media = new ControlledExerciseMedia();
 
-    const firstRender = await render(
-      <App
-        media={media}
-        now={() => new Date(2026, 7, 17, 12)}
-        storage={storage}
-      />,
-    );
-    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
-    await fireEvent.press(screen.getByRole('button', { name: /Ejercicios/ }));
-    await fireEvent.press(screen.getByRole('button', { name: 'Crear ejercicio' }));
-    await fireEvent.changeText(screen.getByTestId('exercise-name-input'), 'Sentadilla');
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Seleccionar grupo Piernas' }),
-    );
-    await fireEvent.press(screen.getByRole('button', { name: 'Guardar ejercicio' }));
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Abrir detalle de Sentadilla' }),
-    );
+    const firstRender = await createExerciseAndOpenDetail(media, storage);
 
     await fireEvent.press(
       screen.getByRole('button', { name: 'Añadir imágenes y vídeos' }),
@@ -157,31 +165,11 @@ describe('exercise multimedia', () => {
     const media = new ControlledExerciseMedia();
     media.selection = [];
 
-    await render(
-      <App
-        media={media}
-        now={() => new Date(2026, 7, 17, 12)}
-        storage={storage}
-      />,
-    );
-    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
-    await fireEvent.press(screen.getByRole('button', { name: /Ejercicios/ }));
-    await settleNavigation();
-    await waitFor(() => expect(screen.getByText('Biblioteca de ejercicios')).toBeTruthy());
-    await fireEvent.press(screen.getByRole('button', { name: 'Crear ejercicio' }));
-    await fireEvent.changeText(screen.getByTestId('exercise-name-input'), 'Sentadilla');
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Seleccionar grupo Piernas' }),
-    );
-    await fireEvent.press(screen.getByRole('button', { name: 'Guardar ejercicio' }));
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Abrir detalle de Sentadilla' }),
-    );
+    await createExerciseAndOpenDetail(media, storage);
 
     await fireEvent.press(
       screen.getByRole('button', { name: 'Añadir imágenes y vídeos' }),
     );
-
     await waitFor(() =>
       expect(screen.getByText('No se seleccionó ninguna imagen ni vídeo.')).toBeTruthy(),
     );

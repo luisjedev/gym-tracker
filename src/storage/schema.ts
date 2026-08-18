@@ -269,6 +269,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
 function isNonNegativeSafeInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }
@@ -317,24 +321,19 @@ function isValidActiveFasting(value: unknown): value is ActiveFasting {
 function isValidMuscleGroup(value: unknown): value is MuscleGroup {
   return (
     isRecord(value) &&
-    typeof value.id === 'string' &&
-    value.id.length > 0 &&
-    typeof value.name === 'string' &&
-    value.name.length > 0
+    isNonEmptyString(value.id) &&
+    isNonEmptyString(value.name)
   );
 }
 
 function isValidStrengthSession(value: unknown): value is StrengthSession {
   return (
     isRecord(value) &&
-    typeof value.id === 'string' &&
-    value.id.length > 0 &&
-    typeof value.name === 'string' &&
-    value.name.length > 0 &&
+    isNonEmptyString(value.id) &&
+    isNonEmptyString(value.name) &&
     Array.isArray(value.muscleGroupIds) &&
-    value.muscleGroupIds.every(
-      (groupId) => typeof groupId === 'string' && groupId.length > 0,
-    ) &&
+    value.muscleGroupIds.length > 0 &&
+    value.muscleGroupIds.every(isNonEmptyString) &&
     typeof value.completed === 'boolean'
   );
 }
@@ -342,7 +341,7 @@ function isValidStrengthSession(value: unknown): value is StrengthSession {
 function isValidCompletedFasting(value: unknown): value is CompletedFasting {
   if (
     !isRecord(value) ||
-    typeof value.id !== 'string' ||
+    !isNonEmptyString(value.id) ||
     !isValidTimestamp(value.startedAt) ||
     !isValidTimestamp(value.endedAt) ||
     !isNonNegativeSafeInteger(value.durationMinutes)
@@ -363,11 +362,9 @@ function isOptionalNonNegativeNumber(value: unknown): boolean {
 function isValidMediaItem(value: unknown): value is MediaItem {
   return (
     isRecord(value) &&
-    typeof value.id === 'string' &&
-    value.id.length > 0 &&
+    isNonEmptyString(value.id) &&
     (value.type === 'image' || value.type === 'video') &&
-    typeof value.uri === 'string' &&
-    value.uri.length > 0 &&
+    isNonEmptyString(value.uri) &&
     isOptionalNonNegativeNumber(value.width) &&
     isOptionalNonNegativeNumber(value.height) &&
     isOptionalNonNegativeNumber(value.duration)
@@ -377,12 +374,9 @@ function isValidMediaItem(value: unknown): value is MediaItem {
 function isValidExercise(value: unknown): value is Exercise {
   return (
     isRecord(value) &&
-    typeof value.id === 'string' &&
-    value.id.length > 0 &&
-    typeof value.name === 'string' &&
-    value.name.length > 0 &&
-    typeof value.muscleGroupId === 'string' &&
-    value.muscleGroupId.length > 0 &&
+    isNonEmptyString(value.id) &&
+    isNonEmptyString(value.name) &&
+    isNonEmptyString(value.muscleGroupId) &&
     typeof value.description === 'string' &&
     Array.isArray(value.media) &&
     value.media.every(isValidMediaItem) &&
@@ -394,7 +388,7 @@ function isValidExercise(value: unknown): value is Exercise {
 function isValidDailyRecord(value: unknown): value is DailyRecord {
   return (
     isRecord(value) &&
-    typeof value.date === 'string' &&
+    isNonEmptyString(value.date) &&
     (value.steps === null || isNonNegativeSafeInteger(value.steps)) &&
     isNonNegativeSafeInteger(value.stepGoal)
   );
@@ -403,7 +397,7 @@ function isValidDailyRecord(value: unknown): value is DailyRecord {
 function isValidWeeklyRecord(value: unknown): value is WeeklyRecord {
   if (
     !isRecord(value) ||
-    typeof value.weekStart !== 'string' ||
+    !isNonEmptyString(value.weekStart) ||
     !isNonNegativeSafeInteger(value.strengthGoal) ||
     !Array.isArray(value.strengthSessions) ||
     !value.strengthSessions.every(isValidStrengthSession) ||
@@ -413,7 +407,10 @@ function isValidWeeklyRecord(value: unknown): value is WeeklyRecord {
     return false;
   }
 
-  return value.heatCompleted <= value.heatGoal;
+  return (
+    value.strengthGoal === value.strengthSessions.length &&
+    value.heatCompleted <= value.heatGoal
+  );
 }
 
 function isValidState(value: unknown): value is AppState {
@@ -424,7 +421,7 @@ function isValidState(value: unknown): value is AppState {
   const settings = value.settings;
   const fasting = value.fasting;
 
-  return (
+  const hasValidShape =
     isRecord(settings) &&
     isNonNegativeSafeInteger(settings.dailyStepGoal) &&
     Array.isArray(settings.strengthSessions) &&
@@ -446,7 +443,23 @@ function isValidState(value: unknown): value is AppState {
     isRecord(fasting) &&
     (fasting.active === null || isValidActiveFasting(fasting.active)) &&
     Array.isArray(fasting.completed) &&
-    fasting.completed.every(isValidCompletedFasting)
+    fasting.completed.every(isValidCompletedFasting);
+
+  if (!hasValidShape) {
+    return false;
+  }
+
+  const state = value as unknown as AppState;
+  const muscleGroupIds = new Set(state.muscleGroups.map((group) => group.id));
+  const hasKnownGroups = (session: StrengthSession): boolean =>
+    session.muscleGroupIds.every((groupId) => muscleGroupIds.has(groupId));
+
+  return (
+    state.settings.strengthSessions.every(hasKnownGroups) &&
+    state.exercises.every((exercise) => muscleGroupIds.has(exercise.muscleGroupId)) &&
+    Object.values(state.weeklyRecords).every((week) =>
+      week.strengthSessions.every(hasKnownGroups),
+    )
   );
 }
 

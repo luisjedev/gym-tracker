@@ -128,16 +128,58 @@ describe('versioned local app state', () => {
     );
   });
 
+  it('rejects persisted strength settings without assigned muscle groups', async () => {
+    const now = new Date(2026, 7, 17, 12, 0, 0);
+    const storage = new MemoryStorage();
+    await saveAppState(storage, createDefaultState(now));
+
+    const payload = JSON.parse(storage.value ?? '{}');
+    payload.state.settings.strengthSessions[0].muscleGroupIds = [];
+    storage.value = JSON.stringify(payload);
+
+    await expect(loadAppState(storage, now)).rejects.toThrow(
+      'La versión de los datos guardados no es compatible.',
+    );
+  });
+
   it('rejects persisted strength snapshots with malformed sessions', async () => {
     const now = new Date(2026, 7, 17, 12, 0, 0);
     const storage = new MemoryStorage();
     await saveAppState(storage, createDefaultState(now));
 
     const payload = JSON.parse(storage.value ?? '{}');
-    payload.state.settings.strengthSessions[0].completed = 'yes';
+    payload.state.weeklyRecords[getMondayDateKey(now)].strengthSessions[0].completed =
+      'yes';
+    storage.value = JSON.stringify(payload);
+
+    await expect(loadAppState(storage, now)).rejects.toThrow(
+      'La versión de los datos guardados no es compatible.',
+    );
+  });
+
+  it('rejects persisted strength snapshots that reference an unknown group', async () => {
+    const now = new Date(2026, 7, 17, 12, 0, 0);
+    const storage = new MemoryStorage();
+    await saveAppState(storage, createDefaultState(now));
+
+    const payload = JSON.parse(storage.value ?? '{}');
     payload.state.weeklyRecords[getMondayDateKey(now)].strengthSessions[0].muscleGroupIds = [
-      null,
+      'missing-group',
     ];
+    storage.value = JSON.stringify(payload);
+
+    await expect(loadAppState(storage, now)).rejects.toThrow(
+      'La versión de los datos guardados no es compatible.',
+    );
+  });
+
+  it('rejects persisted weekly strength goals that disagree with their sessions', async () => {
+    const now = new Date(2026, 7, 17, 12, 0, 0);
+    const storage = new MemoryStorage();
+    await saveAppState(storage, createDefaultState(now));
+
+    const payload = JSON.parse(storage.value ?? '{}');
+    payload.state.weeklyRecords[getMondayDateKey(now)].strengthGoal = 2;
     storage.value = JSON.stringify(payload);
 
     await expect(loadAppState(storage, now)).rejects.toThrow(
