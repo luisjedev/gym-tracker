@@ -39,7 +39,6 @@ class ControlledWaterNotifications implements WaterNotificationAdapter {
   foreignCancellationAttempts = 0;
   failCancellations = false;
   failCancellationId: string | null = null;
-  readonly cancellationAttempts: string[] = [];
   private nextId = 1;
 
   async getPermissionStatus() {
@@ -70,7 +69,6 @@ class ControlledWaterNotifications implements WaterNotificationAdapter {
   }
 
   async cancelWaterReminder(id: string) {
-    this.cancellationAttempts.push(id);
     if (this.failCancellations || id === this.failCancellationId) {
       throw new Error('cancel failed');
     }
@@ -1304,7 +1302,7 @@ describe('Gym Tracker app flow', () => {
     await waitFor(() =>
       expect(
         screen.getByText(
-          'No se pudieron cancelar los recordatorios de agua. Se conserva la configuración y puedes reintentarlo.',
+          'No se pudieron actualizar los recordatorios de agua. Comprueba los permisos e inténtalo de nuevo.',
         ),
       ).toBeTruthy(),
     );
@@ -1351,13 +1349,29 @@ describe('Gym Tracker app flow', () => {
       screen.getByRole('button', { name: 'Guardar recordatorios de agua' }),
     );
 
-    await waitFor(() => expect(screen.getByText('cancel failed')).toBeTruthy());
-    expect(notifications.cancellationAttempts).toEqual(
-      expect.arrayContaining(firstScheduleIds),
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          'No se pudieron actualizar los recordatorios de agua. Comprueba los permisos e inténtalo de nuevo.',
+        ),
+      ).toBeTruthy(),
     );
-    expect(notifications.foreignCancellationAttempts).toBe(0);
+    expect(screen.getByText('Inactivos')).toBeTruthy();
 
     notifications.failCancellationId = null;
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Guardar recordatorios de agua' }),
+    );
+    await waitFor(() =>
+      expect([...notifications.scheduled.values()]).toEqual([
+        { hour: 8, minute: 0 },
+        { hour: 11, minute: 0 },
+        { hour: 14, minute: 0 },
+        { hour: 17, minute: 0 },
+        { hour: 20, minute: 0 },
+      ]),
+    );
+    expect(screen.getByText('Activos')).toBeTruthy();
   });
 
   it('keeps the loaded state and reports a recoverable error when revocation cannot be persisted', async () => {

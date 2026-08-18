@@ -38,6 +38,7 @@ import {
 } from '../storage/schema';
 
 export type AppLoadStatus = 'loading' | 'ready' | 'error';
+export type WaterScheduleStatus = 'inactive' | 'scheduled' | 'error';
 
 type NowProvider = () => Date;
 
@@ -49,6 +50,7 @@ export interface AppStateContextValue {
   currentWeek: WeeklyRecord | null;
   currentTime: Date;
   waterPermissionStatus: WaterPermissionStatus | null;
+  waterScheduleStatus: WaterScheduleStatus;
   updateDailySteps(value: number): Promise<void>;
   updateDailyStepGoal(value: number): Promise<void>;
   startFasting(): Promise<void>;
@@ -152,8 +154,8 @@ function normalizeStrengthConfiguration(
 
 const WATER_PERMISSION_ERROR =
   'No se concedió el permiso de notificaciones. Actívalo en Ajustes de Android para recibir avisos.';
-const WATER_CANCELLATION_ERROR =
-  'No se pudieron cancelar los recordatorios de agua. Se conserva la configuración y puedes reintentarlo.';
+const WATER_SCHEDULE_ERROR =
+  'No se pudieron actualizar los recordatorios de agua. Comprueba los permisos e inténtalo de nuevo.';
 
 async function cancelWaterReminders(
   notifications: WaterNotificationAdapter,
@@ -183,20 +185,27 @@ async function scheduleWaterReminders(
   }
 }
 
+async function replaceWaterReminderSchedule(
+  notifications: WaterNotificationAdapter,
+  settings: WaterSettings,
+): Promise<void> {
+  await cancelWaterReminders(notifications);
+  await scheduleWaterReminders(notifications, getWaterReminderTimes(settings));
+}
+
 async function restoreWaterReminderSchedule(
   notifications: WaterNotificationAdapter,
   previousWaterSettings: WaterSettings,
-): Promise<void> {
+): Promise<boolean> {
   try {
-    await cancelWaterReminders(notifications);
     if (previousWaterSettings.enabled) {
-      await scheduleWaterReminders(
-        notifications,
-        getWaterReminderTimes(previousWaterSettings),
-      );
+      await replaceWaterReminderSchedule(notifications, previousWaterSettings);
+    } else {
+      await cancelWaterReminders(notifications);
     }
+    return true;
   } catch {
-    // A rollback is best effort; the original operation error remains authoritative.
+    return false;
   }
 }
 
@@ -213,6 +222,8 @@ export function AppStateProvider({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [waterPermissionStatus, setWaterPermissionStatus] =
     useState<WaterPermissionStatus | null>(null);
+  const [waterScheduleStatus, setWaterScheduleStatus] =
+    useState<WaterScheduleStatus>('inactive');
   const [currentTime, setCurrentTime] = useState(() => now());
   const stateRef = useRef<AppState | null>(null);
   const strengthMutationQueueRef = useRef(Promise.resolve());
@@ -233,28 +244,45 @@ export function AppStateProvider({
         let stateToUse = loadedState;
         let permission: WaterPermissionStatus | null = null;
         let waterStatePersistenceFailed = false;
-        let waterCancellationFailed = false;
+        let waterScheduleFailed = false;
+        let nextWaterScheduleStatus: WaterScheduleStatus = 'inactive';
 
         try {
           permission = await notifications.getPermissionStatus();
           setWaterPermissionStatus(permission);
         } catch {
           // Notification availability must not prevent local data from loading.
+          waterScheduleFailed = loadedState.settings.water.enabled;
+          if (waterScheduleFailed) {
+            nextWaterScheduleStatus = 'error';
+          }
         }
 
-        if (
-          permission !== null &&
+        if (loadedState.settings.water.enabled && permission === 'granted') {
+          try {
+            await notifications.createChannel();
+            await replaceWaterReminderSchedule(
+              notifications,
+              loadedState.settings.water,
+            );
+            nextWaterScheduleStatus = 'scheduled';
+          } catch {
+            waterScheduleFailed = true;
+            nextWaterScheduleStatus = 'error';
+          }
+        } else if (
           loadedState.settings.water.enabled &&
-          permission !== 'granted'
+          permission !== null
         ) {
           try {
             await cancelWaterReminders(notifications);
           } catch {
             // Do not persist a disabled state while old reminders may still exist.
-            waterCancellationFailed = true;
+            waterScheduleFailed = true;
+            nextWaterScheduleStatus = 'error';
           }
 
-          if (!waterCancellationFailed) {
+          if (!waterScheduleFailed) {
             stateToUse = {
               ...loadedState,
               settings: {
@@ -270,22 +298,32 @@ export function AppStateProvider({
             } catch {
               stateToUse = loadedState;
               waterStatePersistenceFailed = true;
-              await restoreWaterReminderSchedule(
+              const restored = await restoreWaterReminderSchedule(
                 notifications,
                 loadedState.settings.water,
               );
+              nextWaterScheduleStatus = restored ? 'scheduled' : 'error';
             }
+          }
+        } else if (!loadedState.settings.water.enabled) {
+          try {
+            await cancelWaterReminders(notifications);
+          } catch {
+            // Clean up stale water reminders without blocking local data loading.
+            waterScheduleFailed = true;
+            nextWaterScheduleStatus = 'error';
           }
         }
 
+        setWaterScheduleStatus(nextWaterScheduleStatus);
         stateRef.current = stateToUse;
         setState(stateToUse);
         setStatus('ready');
         setErrorMessage(
           waterStatePersistenceFailed
             ? 'No se pudo guardar el cambio. Tus datos anteriores siguen intactos.'
-            : waterCancellationFailed
-              ? WATER_CANCELLATION_ERROR
+            : waterScheduleFailed
+              ? WATER_SCHEDULE_ERROR
               : null,
         );
       } catch {
@@ -527,14 +565,20 @@ export function AppStateProvider({
         const previousWaterSettings = currentState.settings.water;
 
         if (settings.enabled) {
-          await notifications.createChannel();
-          const permission = await notifications.getPermissionStatus();
-          setWaterPermissionStatus(permission);
-          const finalPermission =
-            permission === 'undetermined'
-              ? await notifications.requestPermission()
-              : permission;
-          setWaterPermissionStatus(finalPermission);
+          let finalPermission: WaterPermissionStatus;
+          try {
+            await notifications.createChannel();
+            const permission = await notifications.getPermissionStatus();
+            setWaterPermissionStatus(permission);
+            finalPermission =
+              permission === 'undetermined'
+                ? await notifications.requestPermission()
+                : permission;
+            setWaterPermissionStatus(finalPermission);
+          } catch {
+            setWaterScheduleStatus('error');
+            throw new Error(WATER_SCHEDULE_ERROR);
+          }
 
           if (finalPermission !== 'granted') {
             try {
@@ -549,12 +593,20 @@ export function AppStateProvider({
                   },
                 },
               });
+              setWaterScheduleStatus('inactive');
             } catch (error) {
-              await restoreWaterReminderSchedule(
+              const restored = await restoreWaterReminderSchedule(
                 notifications,
                 previousWaterSettings,
               );
-              throw error;
+              setWaterScheduleStatus(
+                restored
+                  ? previousWaterSettings.enabled
+                    ? 'scheduled'
+                    : 'inactive'
+                  : 'error',
+              );
+              throw new Error(WATER_SCHEDULE_ERROR, { cause: error });
             }
 
             throw new Error(WATER_PERMISSION_ERROR);
@@ -562,12 +614,10 @@ export function AppStateProvider({
         }
 
         try {
-          await cancelWaterReminders(notifications);
           if (settings.enabled) {
-            await scheduleWaterReminders(
-              notifications,
-              getWaterReminderTimes(settings),
-            );
+            await replaceWaterReminderSchedule(notifications, settings);
+          } else {
+            await cancelWaterReminders(notifications);
           }
 
           await persistState({
@@ -577,12 +627,20 @@ export function AppStateProvider({
               water: { ...settings },
             },
           });
+          setWaterScheduleStatus(settings.enabled ? 'scheduled' : 'inactive');
         } catch (error) {
-          await restoreWaterReminderSchedule(
+          const restored = await restoreWaterReminderSchedule(
             notifications,
             previousWaterSettings,
           );
-          throw error;
+          setWaterScheduleStatus(
+            restored
+              ? previousWaterSettings.enabled
+                ? 'scheduled'
+                : 'inactive'
+              : 'error',
+          );
+          throw new Error(WATER_SCHEDULE_ERROR, { cause: error });
         }
       });
       waterMutationQueueRef.current = operation.catch(() => undefined);
@@ -914,6 +972,7 @@ export function AppStateProvider({
         : null,
       currentTime,
       waterPermissionStatus,
+      waterScheduleStatus,
       updateDailySteps,
       updateDailyStepGoal,
       startFasting,
@@ -959,6 +1018,7 @@ export function AppStateProvider({
       updateWaterSettings,
       updateMuscleGroup,
       waterPermissionStatus,
+      waterScheduleStatus,
     ],
   );
 

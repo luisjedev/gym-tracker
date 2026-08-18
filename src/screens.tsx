@@ -224,6 +224,7 @@ export function HomeScreen() {
     undoHeatSession,
     updateDailySteps,
     waterPermissionStatus,
+    waterScheduleStatus,
   } = useAppState();
   const navigation = useNavigation<BottomTabNavigationProp<RootTabParamList>>();
   const [stepsInput, setStepsInput] = useState(
@@ -264,7 +265,9 @@ export function HomeScreen() {
   const heatStatus = getStrengthProgressStatus(heatCompleted, heatGoal);
   const heatRemaining = Math.max(heatGoal - heatCompleted, 0);
   const waterRemindersActive =
-    state.settings.water.enabled && waterPermissionStatus === 'granted';
+    state.settings.water.enabled &&
+    waterPermissionStatus === 'granted' &&
+    waterScheduleStatus === 'scheduled';
   const activeFasting = state.fasting.active;
   const activeFastingDuration = activeFasting
     ? calculateFastingDurationMinutes(
@@ -542,7 +545,9 @@ export function HomeScreen() {
             ? 'Los avisos se repiten cada día dentro de la ventana configurada.'
             : waterPermissionStatus === 'denied'
               ? 'El permiso de notificaciones está denegado. Revísalo desde Ajustes.'
-              : 'Activa los avisos desde Ajustes cuando quieras recibirlos.'}
+              : waterScheduleStatus === 'error'
+                ? 'No se pudieron actualizar los avisos. Revisa los permisos e inténtalo de nuevo.'
+                : 'Activa los avisos desde Ajustes cuando quieras recibirlos.'}
         </Text>
       </Card>
     </Screen>
@@ -1261,6 +1266,7 @@ export function SettingsScreen() {
     updateStrengthConfiguration,
     updateWaterSettings,
     waterPermissionStatus,
+    waterScheduleStatus,
   } = useAppState();
   const currentGoal = currentDay?.stepGoal ?? state?.settings.dailyStepGoal ?? 0;
   const configuredHeatGoal = state?.settings.heatWeeklyGoal ?? 0;
@@ -1330,7 +1336,9 @@ export function SettingsScreen() {
   }
 
   const waterRemindersActive =
-    state.settings.water.enabled && waterPermissionStatus === 'granted';
+    state.settings.water.enabled &&
+    waterPermissionStatus === 'granted' &&
+    waterScheduleStatus === 'scheduled';
 
   function handleStrengthSessionCountChange(value: string) {
     setStrengthSessionCount(value);
@@ -1659,7 +1667,9 @@ export function SettingsScreen() {
             <Text style={styles.supportText}>
               {waterPermissionStatus === 'denied'
                 ? 'Permiso de notificaciones denegado. Actívalo en Ajustes de Android para recibir avisos.'
-                : 'Activa los avisos para solicitar el permiso y programar recordatorios locales.'}
+                : waterScheduleStatus === 'error'
+                  ? 'No se pudieron actualizar los avisos. Revisa los permisos e inténtalo de nuevo.'
+                  : 'Activa los avisos para solicitar el permiso y programar recordatorios locales.'}
             </Text>
           </View>
           <Switch
