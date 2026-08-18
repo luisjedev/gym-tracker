@@ -193,24 +193,17 @@ async function replaceWaterReminderSchedule(
   await scheduleWaterReminders(notifications, getWaterReminderTimes(settings));
 }
 
-async function ensureWaterReminderSchedule(
-  notifications: WaterNotificationAdapter,
-  settings: WaterSettings,
-): Promise<void> {
-  const scheduledIds = await notifications.getScheduledWaterReminderIds();
-  const expectedReminderCount = getWaterReminderTimes(settings).length;
-
-  if (scheduledIds.length !== expectedReminderCount) {
-    await replaceWaterReminderSchedule(notifications, settings);
-  }
-}
-
 async function restoreWaterReminderSchedule(
   notifications: WaterNotificationAdapter,
   previousWaterSettings: WaterSettings,
 ): Promise<boolean> {
   try {
     if (previousWaterSettings.enabled) {
+      if ((await notifications.getPermissionStatus()) !== 'granted') {
+        await cancelWaterReminders(notifications);
+        return false;
+      }
+
       await replaceWaterReminderSchedule(notifications, previousWaterSettings);
     } else {
       await cancelWaterReminders(notifications);
@@ -245,6 +238,15 @@ export function AppStateProvider({
 
   const load = useCallback(
     async (isInitialLoad: boolean) => {
+      const previousWaterOperation = waterMutationQueueRef.current;
+      let releaseWaterLoad!: () => void;
+      const waterLoadGate = new Promise<void>((resolve) => {
+        releaseWaterLoad = resolve;
+      });
+      waterMutationQueueRef.current = previousWaterOperation
+        .then(() => waterLoadGate)
+        .catch(() => undefined);
+
       if (isInitialLoad) {
         setStatus('loading');
       }
@@ -252,7 +254,7 @@ export function AppStateProvider({
       try {
         const currentDate = now();
         setCurrentTime(currentDate);
-        await waterMutationQueueRef.current;
+        await previousWaterOperation;
         const loadedState = await loadAppState(storage, currentDate);
         let stateToUse = loadedState;
         let permission: WaterPermissionStatus | null = null;
@@ -274,7 +276,7 @@ export function AppStateProvider({
         if (loadedState.settings.water.enabled && permission === 'granted') {
           try {
             await notifications.createChannel();
-            await ensureWaterReminderSchedule(
+            await replaceWaterReminderSchedule(
               notifications,
               loadedState.settings.water,
             );
@@ -345,6 +347,8 @@ export function AppStateProvider({
         if (isInitialLoad || !stateRef.current) {
           setStatus('error');
         }
+      } finally {
+        releaseWaterLoad();
       }
     },
     [notifications, now, storage],
