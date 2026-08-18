@@ -1677,7 +1677,7 @@ export function SettingsScreen() {
             accessibilityRole="switch"
             onValueChange={(enabled) => void handleWaterToggle(enabled)}
             testID="water-enabled-switch"
-            value={waterRemindersActive}
+            value={state.settings.water.enabled}
           />
         </View>
         <Text style={styles.supportText}>

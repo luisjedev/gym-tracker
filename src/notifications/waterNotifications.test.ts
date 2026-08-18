@@ -1,6 +1,10 @@
+import * as Notifications from 'expo-notifications';
+
 import {
+  defaultWaterNotificationAdapter,
   getWaterReminderTimes,
   validateWaterSettings,
+  WATER_NOTIFICATION_DATA_TYPE,
 } from './waterNotifications';
 
 const defaultConfiguration = {
@@ -59,5 +63,33 @@ describe('water reminder scheduling', () => {
       { hour: 11, minute: 30 },
       { hour: 13, minute: 30 },
     ]);
+  });
+
+  it('filters scheduled notifications to the app-owned water reminders', async () => {
+    const scheduledNotifications = jest.spyOn(
+      Notifications,
+      'getAllScheduledNotificationsAsync',
+    );
+    scheduledNotifications.mockResolvedValue([
+      {
+        identifier: 'water-1',
+        content: {
+          data: { type: WATER_NOTIFICATION_DATA_TYPE },
+        },
+        trigger: null,
+      },
+      {
+        identifier: 'foreign-1',
+        content: {
+          data: { type: 'other-app-reminder' },
+        },
+        trigger: null,
+      },
+    ] as unknown as Notifications.NotificationRequest[]);
+
+    await expect(
+      defaultWaterNotificationAdapter.getScheduledWaterReminderIds(),
+    ).resolves.toEqual(['water-1']);
+    scheduledNotifications.mockRestore();
   });
 });

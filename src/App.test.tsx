@@ -1357,6 +1357,7 @@ describe('Gym Tracker app flow', () => {
       ).toBeTruthy(),
     );
     expect(screen.getByText('Inactivos')).toBeTruthy();
+    expect(screen.getByTestId('water-enabled-switch').props.value).toBe(true);
 
     notifications.failCancellationId = null;
     await fireEvent.press(

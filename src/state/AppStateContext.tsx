@@ -240,6 +240,7 @@ export function AppStateProvider({
       try {
         const currentDate = now();
         setCurrentTime(currentDate);
+        await waterMutationQueueRef.current;
         const loadedState = await loadAppState(storage, currentDate);
         let stateToUse = loadedState;
         let permission: WaterPermissionStatus | null = null;
