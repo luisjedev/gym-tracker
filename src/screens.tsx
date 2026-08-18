@@ -16,6 +16,7 @@ import { VideoView, useVideoPlayer } from 'expo-video';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { calculateFastingDurationMinutes, getAverageFastingDurationMinutes } from './storage/fasting';
+import { getHistoryDays, getHistoryFastings } from './storage/history';
 import { useAppState } from './state/AppStateContext';
 import {
   DEFAULT_WATER_SETTINGS,
@@ -64,20 +65,21 @@ function formatFastingDuration(durationMinutes: number): string {
   return hours > 0 ? `${hours} h ${minutes} min` : `${minutes} min`;
 }
 
-function formatFastingStart(startedAt: string): string {
-  const date = new Date(startedAt);
-  const datePart = date.toLocaleDateString('es-ES', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-  });
-  const timePart = date.toLocaleTimeString('es-ES', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  });
+function formatTimestamp(timestamp: string): string {
+  const date = new Date(timestamp);
+  const datePart = [date.getDate(), date.getMonth() + 1, date.getFullYear()]
+    .map((part) => String(part).padStart(2, '0'))
+    .join('/');
+  const timePart = [date.getHours(), date.getMinutes()]
+    .map((part) => String(part).padStart(2, '0'))
+    .join(':');
 
   return `${datePart}, ${timePart}`;
+}
+
+function formatHistoryDate(dateKey: string): string {
+  const [year, month, day] = dateKey.split('-');
+  return `${day}/${month}/${year}`;
 }
 
 function Screen({ title, children }: { title: string; children: ReactNode }) {
@@ -409,7 +411,7 @@ export function HomeScreen() {
           <>
             <Text style={styles.metricText}>Ayuno activo</Text>
             <Text style={styles.supportText}>
-              Hora de inicio: {formatFastingStart(activeFasting.startedAt)}
+              Hora de inicio: {formatTimestamp(activeFasting.startedAt)}
             </Text>
             <Text style={styles.supportText}>
               Duración: {formatFastingDuration(activeFastingDuration)}
@@ -1492,14 +1494,118 @@ export function ExercisesScreen() {
 }
 
 export function HistoryScreen() {
+  const { state, currentTime } = useAppState();
+
+  if (!state) {
+    return null;
+  }
+
+  const historyDays = getHistoryDays(state.dailyRecords);
+  const completedFastings = getHistoryFastings(state.fasting.completed);
+  const activeFasting = state.fasting.active;
+  const hasHistory =
+    historyDays.some((day) => day.steps !== null) ||
+    activeFasting !== null ||
+    completedFastings.length > 0;
+
+  if (!hasHistory) {
+    return (
+      <Screen title="Historial">
+        <Card>
+          <Text style={styles.emptyTitle}>Aún no hay historial</Text>
+          <Text style={styles.emptyText}>
+            Cuando registres pasos, entrenamientos o ayunos, aparecerán aquí sin
+            borrar los periodos anteriores.
+          </Text>
+        </Card>
+      </Screen>
+    );
+  }
+
+  const activeFastingDuration = activeFasting
+    ? calculateFastingDurationMinutes(
+        activeFasting.startedAt,
+        currentTime.toISOString(),
+      )
+    : null;
+
   return (
     <Screen title="Historial">
       <Card>
-        <Text style={styles.emptyTitle}>Aún no hay historial</Text>
+        <Text style={styles.libraryTitle}>Historial de días</Text>
         <Text style={styles.emptyText}>
-          Cuando registres pasos, entrenamientos o ayunos, aparecerán aquí sin
-          borrar los periodos anteriores.
+          Los registros aparecen del más reciente al más antiguo. Un día sin pasos
+          conserva su objetivo, pero no cuenta como cero.
         </Text>
+        <View style={styles.historyList}>
+          {historyDays.map((day) => (
+            <View key={day.date} style={styles.historyCard}>
+              <Text accessibilityRole="header" style={styles.historyDate}>
+                {formatHistoryDate(day.date)}
+              </Text>
+              {day.steps === null ? (
+                <>
+                  <Text style={styles.metricText}>Sin pasos registrados</Text>
+                  <Text style={styles.supportText}>
+                    Objetivo guardado: {formatNumber(day.stepGoal)} pasos
+                  </Text>
+                  <Text style={styles.mutedText}>Estado: Sin datos</Text>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.metricText}>
+                    {formatNumber(day.steps)} pasos
+                  </Text>
+                  <Text style={styles.supportText}>
+                    Objetivo guardado: {formatNumber(day.stepGoal)} pasos
+                  </Text>
+                  <Text style={styles.supportText}>
+                    {day.steps >= day.stepGoal
+                      ? 'Objetivo alcanzado'
+                      : 'Objetivo no alcanzado'}
+                  </Text>
+                </>
+              )}
+            </View>
+          ))}
+        </View>
+      </Card>
+
+      <Card>
+        <SectionLabel>Ayunos</SectionLabel>
+        {activeFasting && activeFastingDuration !== null ? (
+          <View style={styles.historyCard}>
+            <Text style={styles.metricText}>Ayuno activo</Text>
+            <Text style={styles.supportText}>
+              Inicio: {formatTimestamp(activeFasting.startedAt)}
+            </Text>
+            <Text style={styles.supportText}>
+              Duración actual: {formatFastingDuration(activeFastingDuration)}
+            </Text>
+          </View>
+        ) : null}
+
+        <SectionLabel>Ayunos finalizados</SectionLabel>
+        {completedFastings.length === 0 ? (
+          <Text style={styles.emptyText}>Aún no hay ayunos finalizados</Text>
+        ) : (
+          <View style={styles.historyList}>
+            {completedFastings.map((fasting) => (
+              <View key={fasting.id} style={styles.historyCard}>
+                <Text style={styles.listRowTitle}>Ayuno finalizado</Text>
+                <Text style={styles.supportText}>
+                  Inicio: {formatTimestamp(fasting.startedAt)}
+                </Text>
+                <Text style={styles.supportText}>
+                  Fin: {formatTimestamp(fasting.endedAt)}
+                </Text>
+                <Text style={styles.supportText}>
+                  Duración: {formatFastingDuration(fasting.durationMinutes)}
+                </Text>
+              </View>
+            ))}
+          </View>
+        )}
       </Card>
     </Screen>
   );
@@ -2109,6 +2215,22 @@ const styles = StyleSheet.create({
   sessionList: {
     gap: 8,
     marginTop: 4,
+  },
+  historyList: {
+    gap: 10,
+    marginTop: 4,
+  },
+  historyCard: {
+    borderColor: '#DCE8DF',
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 6,
+    padding: 12,
+  },
+  historyDate: {
+    color: '#14251B',
+    fontSize: 18,
+    fontWeight: '800',
   },
   strengthSessionRow: {
     borderColor: '#DCE8DF',

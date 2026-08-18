@@ -121,6 +121,135 @@ describe('Gym Tracker app flow', () => {
     await waitFor(() => expect(screen.getByText('Objetivo: 8.000 pasos')).toBeTruthy());
   });
 
+  it('shows an empty history and keeps navigation available before any activity', async () => {
+    const storage = new MemoryStorage();
+
+    await render(<App storage={storage} now={() => new Date(2026, 7, 17, 12)} />);
+    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
+
+    await fireEvent.press(screen.getByRole('button', { name: /Historial/ }));
+    await waitFor(() => expect(screen.getByText('Aún no hay historial')).toBeTruthy());
+    expect(
+      screen.getByText(
+        'Cuando registres pasos, entrenamientos o ayunos, aparecerán aquí sin borrar los periodos anteriores.',
+      ),
+    ).toBeTruthy();
+
+    await fireEvent.press(screen.getByRole('button', { name: /Inicio/ }));
+    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
+  });
+
+  it('lists recent days newest first without inventing totals for an empty day', async () => {
+    const storage = new MemoryStorage();
+    let currentNow = new Date(2026, 7, 16, 12, 0, 0);
+    const now = () => currentNow;
+
+    let rendered = await render(<App storage={storage} now={now} />);
+    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
+    await fireEvent.changeText(screen.getByTestId('daily-steps-input'), '8000');
+    await fireEvent.press(screen.getByRole('button', { name: 'Guardar pasos' }));
+    await waitFor(() => expect(screen.getByText('8.000 / 7.000 pasos')).toBeTruthy());
+    await rendered.unmount();
+
+    currentNow = new Date(2026, 7, 17, 12, 0, 0);
+    rendered = await render(<App storage={storage} now={now} />);
+    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
+    await fireEvent.press(screen.getByRole('button', { name: /Historial/ }));
+    await waitFor(() => expect(screen.getByText('Historial de días')).toBeTruthy());
+
+    expect(screen.getAllByRole('header').map((header) => header.props.children)).toEqual([
+      '17/08/2026',
+      '16/08/2026',
+    ]);
+    expect(screen.getByText('Sin pasos registrados')).toBeTruthy();
+    expect(screen.queryByText('0 pasos')).toBeNull();
+    expect(screen.getByText('8.000 pasos')).toBeTruthy();
+    expect(screen.getAllByText('Objetivo guardado: 7.000 pasos')).toHaveLength(2);
+    expect(screen.getByText('Objetivo alcanzado')).toBeTruthy();
+
+    await rendered.unmount();
+    await render(<App storage={storage} now={now} />);
+    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
+    await fireEvent.press(screen.getByRole('button', { name: /Historial/ }));
+    await waitFor(() => expect(screen.getByText('8.000 pasos')).toBeTruthy());
+  });
+
+  it('keeps the saved goal and compliance for earlier days after changing today\'s goal', async () => {
+    const storage = new MemoryStorage();
+    let currentNow = new Date(2026, 7, 16, 12, 0, 0);
+    const now = () => currentNow;
+
+    let rendered = await render(<App storage={storage} now={now} />);
+    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
+    await fireEvent.changeText(screen.getByTestId('daily-steps-input'), '6500');
+    await fireEvent.press(screen.getByRole('button', { name: 'Guardar pasos' }));
+    await waitFor(() => expect(screen.getByText('6.500 / 7.000 pasos')).toBeTruthy());
+    await rendered.unmount();
+
+    currentNow = new Date(2026, 7, 17, 12, 0, 0);
+    rendered = await render(<App storage={storage} now={now} />);
+    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
+    await fireEvent.press(screen.getByRole('button', { name: /Ajustes/ }));
+    await fireEvent.changeText(screen.getByTestId('daily-step-goal-input'), '6000');
+    await fireEvent.press(screen.getByRole('button', { name: 'Guardar objetivo' }));
+    await waitFor(() => expect(screen.getByText('Objetivo guardado')).toBeTruthy());
+    await fireEvent.press(screen.getByRole('button', { name: /Inicio/ }));
+    await waitFor(() => expect(screen.getByText('0 / 6.000 pasos')).toBeTruthy());
+    await fireEvent.changeText(screen.getByTestId('daily-steps-input'), '6000');
+    await fireEvent.press(screen.getByRole('button', { name: 'Guardar pasos' }));
+    await waitFor(() => expect(screen.getByText('6.000 / 6.000 pasos')).toBeTruthy());
+    await fireEvent.press(screen.getByRole('button', { name: /Historial/ }));
+    await waitFor(() => expect(screen.getByText('Historial de días')).toBeTruthy());
+
+    expect(screen.getByText('6.500 pasos')).toBeTruthy();
+    expect(screen.getByText('Objetivo guardado: 7.000 pasos')).toBeTruthy();
+    expect(screen.getByText('Objetivo no alcanzado')).toBeTruthy();
+    expect(screen.getByText('Objetivo guardado: 6.000 pasos')).toBeTruthy();
+    expect(screen.getAllByText('Objetivo alcanzado')).toHaveLength(1);
+
+    await rendered.unmount();
+    currentNow = new Date(2026, 7, 16, 12, 0, 0);
+    await render(<App storage={storage} now={now} />);
+    await fireEvent.press(screen.getByRole('button', { name: /Historial/ }));
+    await waitFor(() => expect(screen.getByText('Objetivo no alcanzado')).toBeTruthy());
+  });
+
+  it('shows an active fast separately and preserves a completed fast across midnight', async () => {
+    const storage = new MemoryStorage();
+    let currentNow = new Date(2026, 7, 16, 22, 30, 0);
+    const now = () => currentNow;
+
+    let rendered = await render(<App storage={storage} now={now} />);
+    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
+    await fireEvent.press(screen.getByRole('button', { name: 'Iniciar ayuno' }));
+    await waitFor(() => expect(screen.getByText('Ayuno activo')).toBeTruthy());
+    await fireEvent.press(screen.getByRole('button', { name: /Historial/ }));
+    await waitFor(() => expect(screen.getByText('Ayuno activo')).toBeTruthy());
+    expect(screen.getByText('Aún no hay ayunos finalizados')).toBeTruthy();
+    expect(screen.queryByText('Ayuno finalizado')).toBeNull();
+    await rendered.unmount();
+
+    currentNow = new Date(2026, 7, 17, 0, 30, 0);
+    rendered = await render(<App storage={storage} now={now} />);
+    await waitFor(() => expect(screen.getByText('Ayuno activo')).toBeTruthy());
+    await fireEvent.press(screen.getByRole('button', { name: 'Finalizar ayuno' }));
+    await waitFor(() => expect(screen.getByText('No hay un ayuno activo.')).toBeTruthy());
+    await fireEvent.press(screen.getByRole('button', { name: /Historial/ }));
+    await waitFor(() => expect(screen.getByText('Ayunos finalizados')).toBeTruthy());
+
+    expect(screen.getByText('Ayuno finalizado')).toBeTruthy();
+    expect(screen.getByText('Inicio: 16/08/2026, 22:30')).toBeTruthy();
+    expect(screen.getByText('Fin: 17/08/2026, 00:30')).toBeTruthy();
+    expect(screen.getByText('Duración: 2 h 0 min')).toBeTruthy();
+    expect(screen.queryByText('Ayuno activo')).toBeNull();
+
+    await rendered.unmount();
+    await render(<App storage={storage} now={now} />);
+    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
+    await fireEvent.press(screen.getByRole('button', { name: /Historial/ }));
+    await waitFor(() => expect(screen.getByText('Inicio: 16/08/2026, 22:30')).toBeTruthy());
+  });
+
   it('records, replaces, and persists today\'s steps while showing progress', async () => {
     const storage = new MemoryStorage();
     const now = new Date(2026, 7, 17, 12, 0, 0);
