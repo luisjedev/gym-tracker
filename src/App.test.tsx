@@ -1040,23 +1040,19 @@ describe('Gym Tracker app flow', () => {
     expect(within(week).getByText('Sáb')).toBeTruthy();
     expect(within(week).getByText('Dom')).toBeTruthy();
 
-    const mondayCircle = screen.getByTestId('home-fasting-day-2026-08-17-circle');
-    const tuesdayCircle = screen.getByTestId('home-fasting-day-2026-08-18-circle');
-    const wednesdayCircle = screen.getByTestId('home-fasting-day-2026-08-19-circle');
-    const fridayCircle = screen.getByTestId('home-fasting-day-2026-08-21-circle');
-
-    expect(mondayCircle.props.accessibilityLabel).toBe(
-      'Lunes: 16 horas, más de 15 horas',
-    );
-    expect(tuesdayCircle.props.accessibilityLabel).toBe(
+    const mondayCircle = screen.getByLabelText('Lunes: 16 horas, más de 15 horas');
+    const tuesdayCircle = screen.getByLabelText(
       'Martes: 15 horas, 15 horas o menos o sin ayuno válido',
     );
-    expect(wednesdayCircle.props.accessibilityLabel).toBe(
+    const wednesdayCircle = screen.getByLabelText(
       'Miércoles: 0 horas, 15 horas o menos o sin ayuno válido',
     );
-    expect(fridayCircle.props.accessibilityLabel).toBe(
-      'Viernes: 0 horas, sin ayuno iniciado',
-    );
+    const fridayCircle = screen.getByLabelText('Viernes: 0 horas, sin ayuno iniciado');
+
+    expect(mondayCircle).toBeTruthy();
+    expect(tuesdayCircle).toBeTruthy();
+    expect(wednesdayCircle).toBeTruthy();
+    expect(fridayCircle).toBeTruthy();
   });
 
   it('shows the active state, eating guidance, and the result after finishing a fast', async () => {
@@ -1073,9 +1069,7 @@ describe('Gym Tracker app flow', () => {
       screen.getByText('Primera hora válida para comer: 18/08/2026, 11:01'),
     ).toBeTruthy();
     expect(screen.getByText('Aún no puedes comer')).toBeTruthy();
-    expect(
-      screen.getByTestId('home-fasting-day-2026-08-17-circle').props.accessibilityLabel,
-    ).toBe('Lunes: 0 horas, ayuno activo');
+    expect(screen.getByLabelText('Lunes: 0 horas, ayuno activo')).toBeTruthy();
 
     currentNow = new Date(2026, 7, 18, 11, 2, 0);
     await rendered.unmount();
@@ -1084,16 +1078,12 @@ describe('Gym Tracker app flow', () => {
 
     await fireEvent.press(screen.getByRole('button', { name: 'Finalizar ayuno' }));
     await waitFor(() => expect(screen.getByText('No hay un ayuno activo.')).toBeTruthy());
-    expect(
-      screen.getByTestId('home-fasting-day-2026-08-17-circle').props.accessibilityLabel,
-    ).toBe('Lunes: 15 horas, más de 15 horas');
+    expect(screen.getByLabelText('Lunes: 15 horas, más de 15 horas')).toBeTruthy();
 
     await rendered.unmount();
     await render(<App now={now} storage={storage} />);
     await waitFor(() => expect(screen.getByText('Último ayuno: 15 h 2 min')).toBeTruthy());
-    expect(
-      screen.getByTestId('home-fasting-day-2026-08-17-circle').props.accessibilityLabel,
-    ).toBe('Lunes: 15 horas, más de 15 horas');
+    expect(screen.getByLabelText('Lunes: 15 horas, más de 15 horas')).toBeTruthy();
   });
 
   it('keeps the active fasting duration until the app is reopened or resumed', async () => {

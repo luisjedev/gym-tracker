@@ -492,13 +492,7 @@ function isValidCompletedFasting(value: unknown): value is CompletedFasting {
     return false;
   }
 
-  const startedTimestamp = Date.parse(value.startedAt);
-  const endedTimestamp = Date.parse(value.endedAt);
-
-  return (
-    endedTimestamp >= startedTimestamp &&
-    value.durationMinutes === Math.floor((endedTimestamp - startedTimestamp) / 60_000)
-  );
+  return Date.parse(value.endedAt) >= Date.parse(value.startedAt);
 }
 
 function isOptionalNonNegativeNumber(value: unknown): boolean {

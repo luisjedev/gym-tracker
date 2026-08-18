@@ -74,6 +74,32 @@ describe('fasting calculations', () => {
     ]);
   });
 
+  it('keeps empty Monday and Sunday periods within the same local week', () => {
+    const mondaySummary = getWeeklyFastingSummary(
+      [],
+      null,
+      new Date(2026, 7, 17, 12, 0, 0),
+    );
+    const sundaySummary = getWeeklyFastingSummary(
+      [],
+      null,
+      new Date(2026, 7, 23, 12, 0, 0),
+    );
+
+    expect(mondaySummary.map((day) => day.date)).toEqual([
+      '2026-08-17',
+      '2026-08-18',
+      '2026-08-19',
+      '2026-08-20',
+      '2026-08-21',
+      '2026-08-22',
+      '2026-08-23',
+    ]);
+    expect(mondaySummary.every((day) => day.status === 'neutral')).toBe(true);
+    expect(sundaySummary.slice(0, 6).every((day) => day.status === 'danger')).toBe(true);
+    expect(sundaySummary[6].status).toBe('neutral');
+  });
+
   it('does not treat an inconsistent completed record as a valid fast', () => {
     const now = new Date(2026, 7, 19, 12, 0, 0);
     const summary = getWeeklyFastingSummary(

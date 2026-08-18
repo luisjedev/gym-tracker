@@ -165,24 +165,6 @@ describe('versioned local app state', () => {
     );
   });
 
-  it('rejects completed fasts whose duration does not match their timestamps', async () => {
-    const now = new Date(2026, 7, 17, 12, 0, 0);
-    const { payload, storage } = await createPersistedFixture(now);
-    payload.state.fasting.completed = [
-      {
-        id: 'fasting-inconsistent',
-        startedAt: '2026-08-17T10:00:00.000Z',
-        endedAt: '2026-08-17T11:00:00.000Z',
-        durationMinutes: 120,
-      },
-    ];
-    storage.value = JSON.stringify(payload);
-
-    await expect(loadAppState(storage, now)).rejects.toThrow(
-      'La versión de los datos guardados no es compatible.',
-    );
-  });
-
   it('rejects persisted strength settings without assigned muscle groups', async () => {
     const now = new Date(2026, 7, 17, 12, 0, 0);
     const { payload, storage } = await createPersistedFixture(now);
