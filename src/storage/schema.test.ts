@@ -27,6 +27,15 @@ class MemoryStorage implements StorageAdapter {
   }
 }
 
+async function createPersistedFixture(now: Date) {
+  const storage = new MemoryStorage();
+  await saveAppState(storage, createDefaultState(now));
+  return {
+    payload: JSON.parse(storage.value ?? '{}'),
+    storage,
+  };
+}
+
 describe('versioned local app state', () => {
   it('creates the documented defaults and persists schema version one', async () => {
     const now = new Date(2026, 7, 17, 12, 0, 0);
@@ -130,10 +139,7 @@ describe('versioned local app state', () => {
 
   it('rejects persisted strength settings without assigned muscle groups', async () => {
     const now = new Date(2026, 7, 17, 12, 0, 0);
-    const storage = new MemoryStorage();
-    await saveAppState(storage, createDefaultState(now));
-
-    const payload = JSON.parse(storage.value ?? '{}');
+    const { payload, storage } = await createPersistedFixture(now);
     payload.state.settings.strengthSessions[0].muscleGroupIds = [];
     storage.value = JSON.stringify(payload);
 
@@ -144,10 +150,7 @@ describe('versioned local app state', () => {
 
   it('rejects persisted strength snapshots with malformed sessions', async () => {
     const now = new Date(2026, 7, 17, 12, 0, 0);
-    const storage = new MemoryStorage();
-    await saveAppState(storage, createDefaultState(now));
-
-    const payload = JSON.parse(storage.value ?? '{}');
+    const { payload, storage } = await createPersistedFixture(now);
     payload.state.weeklyRecords[getMondayDateKey(now)].strengthSessions[0].completed =
       'yes';
     storage.value = JSON.stringify(payload);
@@ -159,10 +162,7 @@ describe('versioned local app state', () => {
 
   it('rejects persisted strength snapshots that reference an unknown group', async () => {
     const now = new Date(2026, 7, 17, 12, 0, 0);
-    const storage = new MemoryStorage();
-    await saveAppState(storage, createDefaultState(now));
-
-    const payload = JSON.parse(storage.value ?? '{}');
+    const { payload, storage } = await createPersistedFixture(now);
     payload.state.weeklyRecords[getMondayDateKey(now)].strengthSessions[0].muscleGroupIds = [
       'missing-group',
     ];
@@ -175,11 +175,66 @@ describe('versioned local app state', () => {
 
   it('rejects persisted weekly strength goals that disagree with their sessions', async () => {
     const now = new Date(2026, 7, 17, 12, 0, 0);
-    const storage = new MemoryStorage();
-    await saveAppState(storage, createDefaultState(now));
-
-    const payload = JSON.parse(storage.value ?? '{}');
+    const { payload, storage } = await createPersistedFixture(now);
     payload.state.weeklyRecords[getMondayDateKey(now)].strengthGoal = 2;
+    storage.value = JSON.stringify(payload);
+
+    await expect(loadAppState(storage, now)).rejects.toThrow(
+      'La versión de los datos guardados no es compatible.',
+    );
+  });
+
+  it('rejects duplicate persisted entity identifiers', async () => {
+    const now = new Date(2026, 7, 17, 12, 0, 0);
+    const { payload, storage } = await createPersistedFixture(now);
+    payload.state.exercises = [
+      {
+        id: 'exercise-1',
+        name: 'Sentadilla',
+        muscleGroupId: 'piernas',
+        description: '',
+        media: [],
+        createdAt: '2026-08-17T10:00:00.000Z',
+        updatedAt: '2026-08-17T10:00:00.000Z',
+      },
+      {
+        id: 'exercise-1',
+        name: 'Press banca',
+        muscleGroupId: 'pecho',
+        description: '',
+        media: [],
+        createdAt: '2026-08-17T10:00:00.000Z',
+        updatedAt: '2026-08-17T10:00:00.000Z',
+      },
+    ];
+    storage.value = JSON.stringify(payload);
+
+    await expect(loadAppState(storage, now)).rejects.toThrow(
+      'La versión de los datos guardados no es compatible.',
+    );
+  });
+
+  it('rejects daily records whose date does not match their storage key', async () => {
+    const now = new Date(2026, 7, 17, 12, 0, 0);
+    const { payload, storage } = await createPersistedFixture(now);
+    payload.state.dailyRecords[formatDateKey(now)].date = '2026-08-16';
+    storage.value = JSON.stringify(payload);
+
+    await expect(loadAppState(storage, now)).rejects.toThrow(
+      'La versión de los datos guardados no es compatible.',
+    );
+  });
+
+  it('rejects weekly records that do not start on a Monday', async () => {
+    const now = new Date(2026, 7, 17, 12, 0, 0);
+    const { payload, storage } = await createPersistedFixture(now);
+    const monday = getMondayDateKey(now);
+    const sunday = '2026-08-16';
+    payload.state.weeklyRecords[sunday] = {
+      ...payload.state.weeklyRecords[monday],
+      weekStart: sunday,
+    };
+    delete payload.state.weeklyRecords[monday];
     storage.value = JSON.stringify(payload);
 
     await expect(loadAppState(storage, now)).rejects.toThrow(
@@ -203,7 +258,7 @@ describe('versioned local app state', () => {
           {
             id: 'media-1',
             type: 'image',
-            uri: '',
+            uri: 'content://picked/routine.jpg',
           },
         ],
         createdAt: '2026-08-17T10:00:00.000Z',

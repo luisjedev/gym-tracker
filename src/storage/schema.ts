@@ -273,6 +273,37 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
+function parseDateKey(value: unknown): Date | null {
+  if (!isNonEmptyString(value) || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return null;
+  }
+
+  const [year, month, day] = value.split('-').map(Number);
+  if (year < 1) {
+    return null;
+  }
+
+  const date = new Date(year, month - 1, day);
+  return date.getFullYear() === year &&
+    date.getMonth() === month - 1 &&
+    date.getDate() === day
+    ? date
+    : null;
+}
+
+function isValidDateKey(value: unknown): value is string {
+  return parseDateKey(value) !== null;
+}
+
+function isMondayDateKey(value: unknown): value is string {
+  const date = parseDateKey(value);
+  return date !== null && date.getDay() === 1;
+}
+
+function hasUniqueIds(items: readonly { id: string }[]): boolean {
+  return new Set(items.map((item) => item.id)).size === items.length;
+}
+
 function isNonNegativeSafeInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }
@@ -365,6 +396,7 @@ function isValidMediaItem(value: unknown): value is MediaItem {
     isNonEmptyString(value.id) &&
     (value.type === 'image' || value.type === 'video') &&
     isNonEmptyString(value.uri) &&
+    value.uri.startsWith('file://') &&
     isOptionalNonNegativeNumber(value.width) &&
     isOptionalNonNegativeNumber(value.height) &&
     isOptionalNonNegativeNumber(value.duration)
@@ -388,7 +420,7 @@ function isValidExercise(value: unknown): value is Exercise {
 function isValidDailyRecord(value: unknown): value is DailyRecord {
   return (
     isRecord(value) &&
-    isNonEmptyString(value.date) &&
+    isValidDateKey(value.date) &&
     (value.steps === null || isNonNegativeSafeInteger(value.steps)) &&
     isNonNegativeSafeInteger(value.stepGoal)
   );
@@ -397,7 +429,7 @@ function isValidDailyRecord(value: unknown): value is DailyRecord {
 function isValidWeeklyRecord(value: unknown): value is WeeklyRecord {
   if (
     !isRecord(value) ||
-    !isNonEmptyString(value.weekStart) ||
+    !isMondayDateKey(value.weekStart) ||
     !isNonNegativeSafeInteger(value.strengthGoal) ||
     !Array.isArray(value.strengthSessions) ||
     !value.strengthSessions.every(isValidStrengthSession) ||
@@ -437,9 +469,15 @@ function isValidState(value: unknown): value is AppState {
     Array.isArray(value.exercises) &&
     value.exercises.every(isValidExercise) &&
     isRecord(value.dailyRecords) &&
-    Object.values(value.dailyRecords).every(isValidDailyRecord) &&
+    Object.entries(value.dailyRecords).every(
+      ([dateKey, record]) =>
+        isValidDailyRecord(record) && record.date === dateKey,
+    ) &&
     isRecord(value.weeklyRecords) &&
-    Object.values(value.weeklyRecords).every(isValidWeeklyRecord) &&
+    Object.entries(value.weeklyRecords).every(
+      ([weekKey, record]) =>
+        isValidWeeklyRecord(record) && record.weekStart === weekKey,
+    ) &&
     isRecord(fasting) &&
     (fasting.active === null || isValidActiveFasting(fasting.active)) &&
     Array.isArray(fasting.completed) &&
@@ -455,6 +493,14 @@ function isValidState(value: unknown): value is AppState {
     session.muscleGroupIds.every((groupId) => muscleGroupIds.has(groupId));
 
   return (
+    hasUniqueIds(state.muscleGroups) &&
+    hasUniqueIds(state.settings.strengthSessions) &&
+    hasUniqueIds(state.exercises) &&
+    state.exercises.every((exercise) => hasUniqueIds(exercise.media)) &&
+    Object.values(state.weeklyRecords).every((week) =>
+      hasUniqueIds(week.strengthSessions),
+    ) &&
+    hasUniqueIds(state.fasting.completed) &&
     state.settings.strengthSessions.every(hasKnownGroups) &&
     state.exercises.every((exercise) => muscleGroupIds.has(exercise.muscleGroupId)) &&
     Object.values(state.weeklyRecords).every((week) =>
