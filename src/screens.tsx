@@ -16,11 +16,16 @@ import { VideoView, useVideoPlayer } from 'expo-video';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { calculateFastingDurationMinutes, getAverageFastingDurationMinutes } from './storage/fasting';
-import { getHistoryDays, getHistoryFastings } from './storage/history';
+import {
+  getHistoryDays,
+  getHistoryFastings,
+  getHistoryWeeks,
+} from './storage/history';
 import { useAppState } from './state/AppStateContext';
 import {
   DEFAULT_WATER_SETTINGS,
   formatDateKey,
+  getMondayDateKey,
   sortExercises,
   type Exercise,
   type MediaItem,
@@ -28,6 +33,7 @@ import {
   type StrengthSession,
   type StrengthSessionInput,
   type WaterSettings,
+  type WeeklyRecord,
 } from './storage/schema';
 import type { RootTabParamList } from './navigation/types';
 
@@ -1493,6 +1499,87 @@ export function ExercisesScreen() {
   );
 }
 
+function hasWeeklyActivity(week: WeeklyRecord): boolean {
+  return (
+    week.heatCompleted > 0 ||
+    week.strengthSessions.some((session) => session.completed)
+  );
+}
+
+function WeeklyHistoryCard({
+  week,
+  currentWeekStart,
+  muscleGroups,
+}: {
+  week: WeeklyRecord;
+  currentWeekStart: string;
+  muscleGroups: readonly MuscleGroup[];
+}) {
+  const isCurrentWeek = week.weekStart === currentWeekStart;
+  const completedStrength = week.strengthSessions.filter(
+    (session) => session.completed,
+  ).length;
+  const strengthStatus = getStrengthProgressStatus(
+    completedStrength,
+    week.strengthGoal,
+  );
+  const heatStatus = getStrengthProgressStatus(week.heatCompleted, week.heatGoal);
+
+  return (
+    <View style={styles.historyCard} testID={`history-week-${week.weekStart}`}>
+      <Text
+        accessibilityRole="header"
+        style={styles.historyDate}
+        testID={`history-week-header-${week.weekStart}`}
+      >
+        {isCurrentWeek
+          ? `Semana actual · lunes ${formatHistoryDate(week.weekStart)}`
+          : `Semana del lunes ${formatHistoryDate(week.weekStart)}`}
+      </Text>
+      <Text style={styles.weekStatusText}>
+        {isCurrentWeek ? 'Semana actual (en curso)' : 'Semana finalizada'}
+      </Text>
+
+      <View style={styles.weeklyProgressBlock}>
+        <SectionLabel>Fuerza semanal</SectionLabel>
+        <Text style={styles.metricText}>
+          {completedStrength} / {week.strengthGoal} sesiones
+        </Text>
+        <Text style={styles.supportText}>Estado: {strengthStatus}</Text>
+      </View>
+
+      <View style={styles.weeklySessionList}>
+        <SectionLabel>Plan de fuerza aplicado</SectionLabel>
+        {week.strengthSessions.map((session) => {
+          const groups = getSessionGroups(session, muscleGroups);
+          return (
+            <View key={`${week.weekStart}-${session.id}`} style={styles.weeklySessionRow}>
+              <Text style={styles.listRowTitle}>{session.name}</Text>
+              <Text style={styles.supportText}>
+                Grupos musculares:{' '}
+                {groups.length > 0
+                  ? groups.map((group) => group.name).join(', ')
+                  : 'Sin grupos disponibles'}
+              </Text>
+              <Text style={styles.mutedText}>
+                {session.completed ? 'Completada' : 'Pendiente'}
+              </Text>
+            </View>
+          );
+        })}
+      </View>
+
+      <View style={styles.weeklyProgressBlock}>
+        <SectionLabel>HEAT semanal</SectionLabel>
+        <Text style={styles.metricText}>
+          {week.heatCompleted} / {week.heatGoal} sesiones
+        </Text>
+        <Text style={styles.supportText}>Estado: {heatStatus}</Text>
+      </View>
+    </View>
+  );
+}
+
 export function HistoryScreen() {
   const { state, currentTime } = useAppState();
 
@@ -1501,12 +1588,19 @@ export function HistoryScreen() {
   }
 
   const historyDays = getHistoryDays(state.dailyRecords);
+  const historyWeeks = getHistoryWeeks(state.weeklyRecords);
   const completedFastings = getHistoryFastings(state.fasting.completed);
   const activeFasting = state.fasting.active;
+  const currentWeekStart = getMondayDateKey(currentTime);
+  const hasWeeklyHistory = historyWeeks.some(
+    (week) => week.weekStart !== currentWeekStart || hasWeeklyActivity(week),
+  );
   const hasHistory =
     historyDays.some((day) => day.steps !== null) ||
     activeFasting !== null ||
-    completedFastings.length > 0;
+    completedFastings.length > 0 ||
+    hasWeeklyHistory;
+  const showWeeklyHistory = historyWeeks.length > 0 && hasHistory;
 
   if (!hasHistory) {
     return (
@@ -1531,6 +1625,26 @@ export function HistoryScreen() {
 
   return (
     <Screen title="Historial">
+      {showWeeklyHistory ? (
+        <Card>
+          <Text style={styles.libraryTitle}>Historial de semanas</Text>
+          <Text style={styles.emptyText}>
+            Las semanas aparecen del lunes más reciente al más antiguo. La semana
+            actual se marca como en curso y conserva el plan aplicado al empezar.
+          </Text>
+          <View style={styles.historyList}>
+            {historyWeeks.map((week) => (
+              <WeeklyHistoryCard
+                currentWeekStart={currentWeekStart}
+                key={week.weekStart}
+                muscleGroups={state.muscleGroups}
+                week={week}
+              />
+            ))}
+          </View>
+        </Card>
+      ) : null}
+
       <Card>
         <Text style={styles.libraryTitle}>Historial de días</Text>
         <Text style={styles.emptyText}>
@@ -1540,7 +1654,11 @@ export function HistoryScreen() {
         <View style={styles.historyList}>
           {historyDays.map((day) => (
             <View key={day.date} style={styles.historyCard}>
-              <Text accessibilityRole="header" style={styles.historyDate}>
+              <Text
+                accessibilityRole="header"
+                style={styles.historyDate}
+                testID={`history-day-header-${day.date}`}
+              >
                 {formatHistoryDate(day.date)}
               </Text>
               {day.steps === null ? (
@@ -2226,6 +2344,23 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: 6,
     padding: 12,
+  },
+  weekStatusText: {
+    color: '#287A4D',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  weeklyProgressBlock: {
+    gap: 6,
+  },
+  weeklySessionList: {
+    gap: 8,
+  },
+  weeklySessionRow: {
+    backgroundColor: '#F4F7F5',
+    borderRadius: 10,
+    gap: 4,
+    padding: 10,
   },
   historyDate: {
     color: '#14251B',

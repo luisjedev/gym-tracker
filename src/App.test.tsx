@@ -157,10 +157,9 @@ describe('Gym Tracker app flow', () => {
     await fireEvent.press(screen.getByRole('button', { name: /Historial/ }));
     await waitFor(() => expect(screen.getByText('Historial de días')).toBeTruthy());
 
-    expect(screen.getAllByRole('header').map((header) => header.props.children)).toEqual([
-      '17/08/2026',
-      '16/08/2026',
-    ]);
+    expect(
+      screen.getAllByTestId(/history-day-header-/).map((header) => header.props.children),
+    ).toEqual(['17/08/2026', '16/08/2026']);
     expect(screen.getByText('Sin pasos registrados')).toBeTruthy();
     expect(screen.queryByText('0 pasos')).toBeNull();
     expect(screen.getByText('8.000 pasos')).toBeTruthy();
@@ -1710,5 +1709,97 @@ describe('Gym Tracker app flow', () => {
     expect(notifications.cancelled).toHaveLength(13);
     expect(notifications.foreignCancellationAttempts).toBe(0);
     expect(notifications.allScheduledIds).toEqual(new Set(['foreign-reminder']));
+  });
+
+  it('shows weekly history snapshots across Monday boundaries and rehydrates them', async () => {
+    const storage = new MemoryStorage();
+    let currentNow = new Date(2026, 7, 9, 12, 0, 0);
+    const now = () => currentNow;
+
+    let rendered = await render(<App now={now} storage={storage} />);
+    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
+
+    await fireEvent.press(
+      screen.getByRole('button', {
+        name: 'Marcar sesión Pecho/Hombro/Tríceps como completada',
+      }),
+    );
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Marcar sesión HEAT como completada' }),
+    );
+    await waitFor(() => expect(screen.getByText('1 / 3 sesiones')).toBeTruthy());
+
+    await fireEvent.press(screen.getByRole('button', { name: /Ajustes/ }));
+    await waitFor(() =>
+      expect(screen.getByTestId('strength-session-count-input')).toBeTruthy(),
+    );
+    await fireEvent.changeText(
+      screen.getByTestId('strength-session-count-input'),
+      '1',
+    );
+    for (const group of ['Pecho', 'Hombro', 'Tríceps']) {
+      await fireEvent.press(
+        screen.getByRole('button', {
+          name: `Seleccionar ${group} para sesión 1`,
+        }),
+      );
+    }
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Seleccionar Abdomen para sesión 1' }),
+    );
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Guardar plan semanal de fuerza' }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByText('Plan semanal guardado para la próxima semana'),
+      ).toBeTruthy(),
+    );
+
+    await fireEvent.changeText(screen.getByTestId('heat-weekly-goal-input'), '2');
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Guardar objetivo semanal de HEAT' }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByText('Objetivo HEAT guardado para la próxima semana'),
+      ).toBeTruthy(),
+    );
+    await rendered.unmount();
+
+    currentNow = new Date(2026, 7, 10, 12, 0, 0);
+    rendered = await render(<App now={now} storage={storage} />);
+    await waitFor(() => expect(screen.getByText('0 / 1 sesiones')).toBeTruthy());
+    await fireEvent.press(screen.getByRole('button', { name: /Historial/ }));
+    await waitFor(() => expect(screen.getByText('Historial de semanas')).toBeTruthy());
+
+    expect(
+      screen
+        .getAllByTestId(/history-week-header-/)
+        .map((header) => header.props.children),
+    ).toEqual([
+      'Semana actual · lunes 10/08/2026',
+      'Semana del lunes 03/08/2026',
+    ]);
+    expect(screen.getByText('Semana actual (en curso)')).toBeTruthy();
+    expect(screen.getByText('Semana finalizada')).toBeTruthy();
+    expect(screen.getByText('0 / 1 sesiones')).toBeTruthy();
+    expect(screen.getByText('0 / 2 sesiones')).toBeTruthy();
+    expect(screen.getByText('1 / 3 sesiones')).toBeTruthy();
+    expect(screen.getByText('1 / 1 sesiones')).toBeTruthy();
+    expect(screen.getByText('Grupos musculares: Abdomen')).toBeTruthy();
+    expect(
+      screen.getByText('Grupos musculares: Pecho, Hombro, Tríceps'),
+    ).toBeTruthy();
+    expect(screen.getByText('Estado: Completado')).toBeTruthy();
+    expect(screen.getAllByText('Estado: Pendiente').length).toBeGreaterThanOrEqual(2);
+
+    await rendered.unmount();
+    await render(<App now={now} storage={storage} />);
+    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
+    await fireEvent.press(screen.getByRole('button', { name: /Historial/ }));
+    await waitFor(() => expect(screen.getByText('Historial de semanas')).toBeTruthy());
+    expect(screen.getByText('Semana del lunes 03/08/2026')).toBeTruthy();
+    expect(screen.getByText('Grupos musculares: Pecho, Hombro, Tríceps')).toBeTruthy();
   });
 });
