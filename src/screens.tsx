@@ -77,9 +77,13 @@ function parsePositiveNumber(value: string): number | null {
   return Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : null;
 }
 
+function getFastingHours(durationMinutes: number): number {
+  return Math.floor(Math.max(0, Math.floor(durationMinutes)) / 60);
+}
+
 function formatFastingDuration(durationMinutes: number): string {
   const safeMinutes = Math.max(0, Math.floor(durationMinutes));
-  const hours = Math.floor(safeMinutes / 60);
+  const hours = getFastingHours(safeMinutes);
   const minutes = safeMinutes % 60;
 
   return hours > 0 ? `${hours} h ${minutes} min` : `${minutes} min`;
@@ -333,9 +337,7 @@ const FASTING_WEEKDAY_LABELS = [
 ] as const;
 
 function getFastingDayHours(durationMinutes: number | null): number {
-  return durationMinutes === null
-    ? 0
-    : Math.max(0, Math.floor(durationMinutes / 60));
+  return durationMinutes === null ? 0 : getFastingHours(durationMinutes);
 }
 
 function getFastingDayPresentation(status: WeeklyFastingDay['status']) {

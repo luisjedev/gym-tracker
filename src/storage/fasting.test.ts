@@ -101,7 +101,7 @@ describe('fasting calculations', () => {
   });
 
   it('does not treat an inconsistent completed record as a valid fast', () => {
-    const now = new Date(2026, 7, 19, 12, 0, 0);
+    const now = new Date(2026, 7, 17, 22, 0, 0);
     const summary = getWeeklyFastingSummary(
       [
         {

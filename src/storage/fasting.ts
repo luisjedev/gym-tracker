@@ -1,5 +1,6 @@
 import {
   formatDateKey,
+  getMondayDateKey,
   type ActiveFasting,
   type CompletedFasting,
 } from './schema';
@@ -63,11 +64,8 @@ export function getFirstValidEatingTime(startedAt: string): Date {
 }
 
 function getWeekDateKeys(now: Date): string[] {
-  const monday = new Date(now);
-  const day = monday.getDay();
-  const daysSinceMonday = day === 0 ? 6 : day - 1;
-  monday.setDate(monday.getDate() - daysSinceMonday);
-  monday.setHours(0, 0, 0, 0);
+  const [year, month, day] = getMondayDateKey(now).split('-').map(Number);
+  const monday = new Date(year, month - 1, day);
 
   return Array.from({ length: DAYS_IN_WEEK }, (_, index) => {
     const date = new Date(monday);
@@ -104,17 +102,22 @@ export function getWeeklyFastingSummary(
 ): WeeklyFastingDay[] {
   const dates = getWeekDateKeys(now);
   const dateSet = new Set(dates);
+  const startedDates = new Set<string>();
   const longestByStartDate = new Map<string, number>();
 
   for (const fasting of completed) {
-    if (!isValidCompletedFasting(fasting)) {
+    const startedTimestamp = Date.parse(fasting.startedAt);
+    if (!Number.isFinite(startedTimestamp)) {
       continue;
     }
 
-    const startDate = new Date(Date.parse(fasting.startedAt));
-    const date = formatDateKey(startDate);
-
+    const date = formatDateKey(new Date(startedTimestamp));
     if (!dateSet.has(date)) {
+      continue;
+    }
+
+    startedDates.add(date);
+    if (!isValidCompletedFasting(fasting)) {
       continue;
     }
 
@@ -159,7 +162,8 @@ export function getWeeklyFastingSummary(
 
     return {
       date,
-      status: date < currentDate ? 'danger' : 'neutral',
+      status:
+        date < currentDate || startedDates.has(date) ? 'danger' : 'neutral',
       durationMinutes: null,
     };
   });
