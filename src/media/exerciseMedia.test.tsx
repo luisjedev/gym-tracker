@@ -90,16 +90,19 @@ async function renderExercises(
   return rendered;
 }
 
+async function openExerciseGroup(group: string) {
+  await fireEvent.press(screen.getByRole('button', { name: `Abrir grupo ${group}` }));
+  await waitFor(() => expect(screen.getByTestId('exercise-group-list')).toBeTruthy());
+}
+
 async function createExerciseAndOpenDetail(
   media: ControlledExerciseMedia,
   storage: StorageAdapter,
 ) {
   const rendered = await renderExercises(media, storage);
-  await fireEvent.press(screen.getByRole('button', { name: 'Crear ejercicio' }));
+  await openExerciseGroup('Piernas');
+    await fireEvent.press(screen.getByRole('button', { name: 'Añadir ejercicio' }));
   await fireEvent.changeText(screen.getByTestId('exercise-name-input'), 'Sentadilla');
-  await fireEvent.press(
-    screen.getByRole('button', { name: 'Seleccionar grupo Piernas' }),
-  );
   await fireEvent.press(screen.getByRole('button', { name: 'Guardar ejercicio' }));
   await fireEvent.press(
     screen.getByRole('button', { name: 'Abrir detalle de Sentadilla' }),
@@ -112,6 +115,7 @@ async function openExerciseDetail(
   storage: StorageAdapter,
 ) {
   await renderExercises(media, storage);
+  await openExerciseGroup('Piernas');
   await waitFor(() =>
     expect(
       screen.getByRole('button', { name: 'Abrir detalle de Sentadilla' }),
@@ -192,11 +196,9 @@ describe('exercise multimedia', () => {
     await fireEvent.press(screen.getByRole('button', { name: /Ejercicios/ }));
     await settleNavigation();
     await waitFor(() => expect(screen.getByText('Biblioteca de ejercicios')).toBeTruthy());
-    await fireEvent.press(screen.getByRole('button', { name: 'Crear ejercicio' }));
+    await openExerciseGroup('Piernas');
+    await fireEvent.press(screen.getByRole('button', { name: 'Añadir ejercicio' }));
     await fireEvent.changeText(screen.getByTestId('exercise-name-input'), 'Sentadilla');
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Seleccionar grupo Piernas' }),
-    );
     await fireEvent.press(screen.getByRole('button', { name: 'Guardar ejercicio' }));
     await fireEvent.press(
       screen.getByRole('button', { name: 'Abrir detalle de Sentadilla' }),
@@ -230,11 +232,9 @@ describe('exercise multimedia', () => {
     await fireEvent.press(screen.getByRole('button', { name: /Ejercicios/ }));
     await settleNavigation();
     await waitFor(() => expect(screen.getByText('Biblioteca de ejercicios')).toBeTruthy());
-    await fireEvent.press(screen.getByRole('button', { name: 'Crear ejercicio' }));
+    await openExerciseGroup('Piernas');
+    await fireEvent.press(screen.getByRole('button', { name: 'Añadir ejercicio' }));
     await fireEvent.changeText(screen.getByTestId('exercise-name-input'), 'Sentadilla');
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Seleccionar grupo Piernas' }),
-    );
     await fireEvent.press(screen.getByRole('button', { name: 'Guardar ejercicio' }));
     await fireEvent.press(
       screen.getByRole('button', { name: 'Abrir detalle de Sentadilla' }),
@@ -273,11 +273,9 @@ describe('exercise multimedia', () => {
     await fireEvent.press(screen.getByRole('button', { name: /Ejercicios/ }));
     await settleNavigation();
     await waitFor(() => expect(screen.getByText('Biblioteca de ejercicios')).toBeTruthy());
-    await fireEvent.press(screen.getByRole('button', { name: 'Crear ejercicio' }));
+    await openExerciseGroup('Piernas');
+    await fireEvent.press(screen.getByRole('button', { name: 'Añadir ejercicio' }));
     await fireEvent.changeText(screen.getByTestId('exercise-name-input'), 'Sentadilla');
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Seleccionar grupo Piernas' }),
-    );
     await fireEvent.press(screen.getByRole('button', { name: 'Guardar ejercicio' }));
     await fireEvent.press(
       screen.getByRole('button', { name: 'Abrir detalle de Sentadilla' }),
@@ -297,7 +295,7 @@ describe('exercise multimedia', () => {
     ]);
     expect(screen.queryByText('Sentadilla')).toBeNull();
 
-    expect(screen.getByText('Aún no hay ejercicios guardados.')).toBeTruthy();
+    expect(screen.getByText('Todavía no hay ejercicios en este grupo.')).toBeTruthy();
   });
 
   it('keeps the remaining exercise media visible when one private file is absent', async () => {
@@ -315,11 +313,9 @@ describe('exercise multimedia', () => {
     await fireEvent.press(screen.getByRole('button', { name: /Ejercicios/ }));
     await settleNavigation();
     await waitFor(() => expect(screen.getByText('Biblioteca de ejercicios')).toBeTruthy());
-    await fireEvent.press(screen.getByRole('button', { name: 'Crear ejercicio' }));
+    await openExerciseGroup('Piernas');
+    await fireEvent.press(screen.getByRole('button', { name: 'Añadir ejercicio' }));
     await fireEvent.changeText(screen.getByTestId('exercise-name-input'), 'Sentadilla');
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Seleccionar grupo Piernas' }),
-    );
     await fireEvent.press(screen.getByRole('button', { name: 'Guardar ejercicio' }));
     await fireEvent.press(
       screen.getByRole('button', { name: 'Abrir detalle de Sentadilla' }),

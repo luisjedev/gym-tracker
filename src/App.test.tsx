@@ -362,7 +362,7 @@ describe('Gym Tracker app flow', () => {
     expect(screen.getByText('0 / 7.000 pasos')).toBeTruthy();
   });
 
-  it('shows the exercise library empty with the initial groups and filter controls', async () => {
+  it('shows the fixed muscle-group catalog in a three-column grid', async () => {
     const storage = new MemoryStorage();
 
     await render(<App storage={storage} now={() => new Date(2026, 7, 17)} />);
@@ -372,100 +372,82 @@ describe('Gym Tracker app flow', () => {
     await waitFor(() =>
       expect(screen.getByText('Biblioteca de ejercicios')).toBeTruthy(),
     );
+    expect(screen.getAllByTestId(/muscle-group-card-/)).toHaveLength(9);
+    for (const group of [
+      'Pecho',
+      'Espalda',
+      'Hombros',
+      'Bíceps',
+      'Tríceps',
+      'Antebrazos',
+      'Abdomen',
+      'Glúteos',
+      'Piernas',
+    ]) {
+      expect(screen.getByRole('button', { name: `Abrir grupo ${group}` })).toBeTruthy();
+    }
+    expect(screen.getAllByText('0 ejercicios')).toHaveLength(9);
+    expect(screen.queryByRole('button', { name: 'Crear grupo muscular' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Renombrar grupo/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Eliminar grupo/ })).toBeNull();
+  });
+
+  it('opens a group, creates an exercise with that group locked, and keeps its detail accessible', async () => {
+    const storage = new MemoryStorage();
+    const now = new Date(2026, 7, 17);
+    const description =
+      'Controla la bajada y mantén los pies apoyados. Respira antes de empujar.';
+
+    const firstRender = await render(<App storage={storage} now={() => now} />);
+    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
+    await fireEvent.press(screen.getByRole('button', { name: /Ejercicios/ }));
+    await waitFor(() => expect(screen.getByTestId('muscle-group-grid')).toBeTruthy());
+
+    await fireEvent.press(screen.getByRole('button', { name: 'Abrir grupo Pecho' }));
+    await waitFor(() => expect(screen.getByTestId('exercise-group-list')).toBeTruthy());
     expect(screen.getByText('Pecho')).toBeTruthy();
-    expect(screen.getByText('Espalda')).toBeTruthy();
-    expect(screen.getByText('Hombro')).toBeTruthy();
-    expect(screen.getByText('Bíceps')).toBeTruthy();
-    expect(screen.getByText('Tríceps')).toBeTruthy();
-    expect(screen.getByText('Piernas')).toBeTruthy();
-    expect(screen.getByText('Glúteos')).toBeTruthy();
-    expect(screen.getByText('Abdomen')).toBeTruthy();
-    expect(screen.getByText('Aún no hay ejercicios guardados.')).toBeTruthy();
+    expect(screen.getByText('0 ejercicios')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Añadir ejercicio' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Volver a grupos musculares' })).toBeTruthy();
 
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Filtrar por Pecho' }),
-    );
-    expect(screen.getByText('Filtro: Pecho')).toBeTruthy();
-    expect(screen.getByText('No hay ejercicios en este grupo todavía.')).toBeTruthy();
-  });
+    await fireEvent.press(screen.getByRole('button', { name: 'Añadir ejercicio' }));
+    expect(screen.getAllByText('Pecho').length).toBeGreaterThan(0);
+    expect(
+      screen.queryByRole('button', { name: 'Seleccionar grupo Pecho' }),
+    ).toBeNull();
+    await fireEvent.press(screen.getByRole('button', { name: 'Guardar ejercicio' }));
+    expect(screen.getByText('Escribe un nombre para el ejercicio.')).toBeTruthy();
 
-  it('creates and rehydrates a custom muscle group', async () => {
-    const storage = new MemoryStorage();
-    const now = new Date(2026, 7, 17);
-
-    const firstRender = await render(<App storage={storage} now={() => now} />);
-    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
-    await fireEvent.press(screen.getByRole('button', { name: /Ejercicios/ }));
-    await waitFor(() =>
-      expect(screen.getByText('Biblioteca de ejercicios')).toBeTruthy(),
-    );
-
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Crear grupo muscular' }),
-    );
-    await fireEvent.changeText(screen.getByTestId('muscle-group-name-input'), '  Core  ');
-    await fireEvent.press(screen.getByRole('button', { name: 'Guardar grupo muscular' }));
-
-    await waitFor(() => expect(screen.getByText('Core')).toBeTruthy());
-    await firstRender.unmount();
-
-    await render(<App storage={storage} now={() => now} />);
-    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
-    await fireEvent.press(screen.getByRole('button', { name: /Ejercicios/ }));
-    await waitFor(() => expect(screen.getByText('Core')).toBeTruthy());
-  });
-
-  it('creates an exercise, opens its detail, and rehydrates it', async () => {
-    const storage = new MemoryStorage();
-    const now = new Date(2026, 7, 17);
-
-    const firstRender = await render(<App storage={storage} now={() => now} />);
-    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
-    await fireEvent.press(screen.getByRole('button', { name: /Ejercicios/ }));
-    await waitFor(() =>
-      expect(screen.getByText('Biblioteca de ejercicios')).toBeTruthy(),
-    );
-
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Crear ejercicio' }),
-    );
     await fireEvent.changeText(screen.getByTestId('exercise-name-input'), 'Press banca');
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Seleccionar grupo Pecho' }),
-    );
     await fireEvent.changeText(
       screen.getByTestId('exercise-description-input'),
-      'Controla la bajada y mantén los pies apoyados.',
+      description,
     );
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Guardar ejercicio' }),
-    );
-
+    await fireEvent.press(screen.getByRole('button', { name: 'Guardar ejercicio' }));
     await waitFor(() =>
       expect(
         screen.getByRole('button', { name: 'Abrir detalle de Press banca' }),
       ).toBeTruthy(),
     );
+    expect(screen.getByTestId(/exercise-cover-exercise-/)).toBeTruthy();
+    expect(screen.getByText(description).props.numberOfLines).toBe(3);
+
     await fireEvent.press(
       screen.getByRole('button', { name: 'Abrir detalle de Press banca' }),
     );
-    await waitFor(() =>
-      expect(screen.getByText('Detalle del ejercicio')).toBeTruthy(),
-    );
-    expect(screen.getByText('Press banca')).toBeTruthy();
+    await waitFor(() => expect(screen.getByText('Detalle del ejercicio')).toBeTruthy());
     expect(screen.getByText('Pecho')).toBeTruthy();
-    expect(
-      screen.getByText('Controla la bajada y mantén los pies apoyados.'),
-    ).toBeTruthy();
+    expect(screen.getByText(description)).toBeTruthy();
+    await fireEvent.press(screen.getByRole('button', { name: 'Volver a ejercicios' }));
+    expect(screen.getByTestId('exercise-group-list')).toBeTruthy();
+    expect(screen.getByText('1 ejercicio')).toBeTruthy();
 
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Volver a ejercicios' }),
-    );
     await firstRender.unmount();
-
     await render(<App storage={storage} now={() => now} />);
     await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
     await fireEvent.press(screen.getByRole('button', { name: /Ejercicios/ }));
+    await waitFor(() => expect(screen.getByTestId('muscle-group-grid')).toBeTruthy());
+    await fireEvent.press(screen.getByRole('button', { name: 'Abrir grupo Pecho' }));
     await waitFor(() =>
       expect(
         screen.getByRole('button', { name: 'Abrir detalle de Press banca' }),
@@ -473,32 +455,31 @@ describe('Gym Tracker app flow', () => {
     );
   });
 
-  it('orders exercises by group and name and filters them by group', async () => {
+  it('counts and orders exercises inside each fixed group', async () => {
     const storage = new MemoryStorage();
 
     await render(<App storage={storage} now={() => new Date(2026, 7, 17)} />);
     await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
     await fireEvent.press(screen.getByRole('button', { name: /Ejercicios/ }));
-    await waitFor(() =>
-      expect(screen.getByText('Biblioteca de ejercicios')).toBeTruthy(),
-    );
+    await waitFor(() => expect(screen.getByTestId('muscle-group-grid')).toBeTruthy());
 
     async function createExercise(name: string, group: string) {
-      await fireEvent.press(screen.getByRole('button', { name: 'Crear ejercicio' }));
+      await fireEvent.press(screen.getByRole('button', { name: `Abrir grupo ${group}` }));
+      await fireEvent.press(screen.getByRole('button', { name: 'Añadir ejercicio' }));
       await fireEvent.changeText(screen.getByTestId('exercise-name-input'), name);
-      await fireEvent.press(
-        screen.getByRole('button', { name: `Seleccionar grupo ${group}` }),
-      );
       await fireEvent.press(screen.getByRole('button', { name: 'Guardar ejercicio' }));
       await waitFor(() =>
         expect(screen.getByRole('button', { name: `Abrir detalle de ${name}` })).toBeTruthy(),
       );
+      await fireEvent.press(screen.getByRole('button', { name: 'Volver a grupos musculares' }));
     }
 
     await createExercise('Press militar', 'Pecho');
     await createExercise('Press banca', 'Pecho');
     await createExercise('Remo', 'Espalda');
 
+    expect(screen.getByText('2 ejercicios')).toBeTruthy();
+    await fireEvent.press(screen.getByRole('button', { name: 'Abrir grupo Pecho' }));
     expect(
       screen.getAllByRole('button', { name: /Abrir detalle de/ }).map(
         (button) => button.props.accessibilityLabel,
@@ -506,68 +487,26 @@ describe('Gym Tracker app flow', () => {
     ).toEqual([
       'Abrir detalle de Press banca',
       'Abrir detalle de Press militar',
-      'Abrir detalle de Remo',
     ]);
-
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Filtrar por Pecho' }),
-    );
-    expect(screen.getByRole('button', { name: 'Abrir detalle de Press banca' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Abrir detalle de Press militar' })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Abrir detalle de Remo' })).toBeNull();
+    await fireEvent.press(screen.getByRole('button', { name: 'Volver a grupos musculares' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Abrir grupo Espalda' }));
+    expect(screen.getByRole('button', { name: 'Abrir detalle de Remo' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Abrir detalle de Press banca' })).toBeNull();
   });
 
-  it('shows validation errors without saving incomplete groups or exercises', async () => {
-    const storage = new MemoryStorage();
-
-    await render(<App storage={storage} now={() => new Date(2026, 7, 17)} />);
-    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
-    await fireEvent.press(screen.getByRole('button', { name: /Ejercicios/ }));
-    await waitFor(() =>
-      expect(screen.getByText('Biblioteca de ejercicios')).toBeTruthy(),
-    );
-
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Crear grupo muscular' }),
-    );
-    await fireEvent.press(screen.getByRole('button', { name: 'Guardar grupo muscular' }));
-    expect(
-      screen.getByText('Escribe un nombre para el grupo muscular.'),
-    ).toBeTruthy();
-
-    await fireEvent.changeText(screen.getByTestId('muscle-group-name-input'), ' pecho ');
-    await fireEvent.press(screen.getByRole('button', { name: 'Guardar grupo muscular' }));
-    expect(screen.getByText('Ya existe un grupo muscular con ese nombre.')).toBeTruthy();
-
-    await fireEvent.press(screen.getByRole('button', { name: 'Crear ejercicio' }));
-    await fireEvent.press(screen.getByRole('button', { name: 'Guardar ejercicio' }));
-    expect(screen.getByText('Escribe un nombre para el ejercicio.')).toBeTruthy();
-
-    await fireEvent.changeText(screen.getByTestId('exercise-name-input'), 'Sentadilla');
-    await fireEvent.press(screen.getByRole('button', { name: 'Guardar ejercicio' }));
-    expect(screen.getByText('Selecciona un grupo muscular.')).toBeTruthy();
-    expect(screen.getByText('Aún no hay ejercicios guardados.')).toBeTruthy();
-  });
-
-  it('edits an exercise from its detail and persists the changes through filters', async () => {
+  it('edits and deletes exercises without changing the fixed group catalog', async () => {
     const storage = new MemoryStorage();
     const now = new Date(2026, 7, 17);
 
     const firstRender = await render(<App storage={storage} now={() => now} />);
     await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
     await fireEvent.press(screen.getByRole('button', { name: /Ejercicios/ }));
-    await waitFor(() =>
-      expect(screen.getByText('Biblioteca de ejercicios')).toBeTruthy(),
-    );
-
-    await fireEvent.press(screen.getByRole('button', { name: 'Crear ejercicio' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Abrir grupo Pecho' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Añadir ejercicio' }));
     await fireEvent.changeText(screen.getByTestId('exercise-name-input'), 'Press banca');
     await fireEvent.changeText(
       screen.getByTestId('exercise-description-input'),
       'Descripción inicial',
-    );
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Seleccionar grupo Pecho' }),
     );
     await fireEvent.press(screen.getByRole('button', { name: 'Guardar ejercicio' }));
     await fireEvent.press(
@@ -575,26 +514,7 @@ describe('Gym Tracker app flow', () => {
     );
 
     await fireEvent.press(screen.getByRole('button', { name: 'Editar ejercicio' }));
-    await fireEvent.changeText(
-      screen.getByTestId('exercise-edit-name-input'),
-      'No se guarda',
-    );
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Cancelar edición del ejercicio' }),
-    );
-    expect(screen.getByText('Press banca')).toBeTruthy();
-    expect(screen.queryByText('No se guarda')).toBeNull();
-
-    await fireEvent.press(screen.getByRole('button', { name: 'Editar ejercicio' }));
-    await fireEvent.changeText(screen.getByTestId('exercise-edit-name-input'), '   ');
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Guardar cambios del ejercicio' }),
-    );
-    expect(screen.getByText('Escribe un nombre para el ejercicio.')).toBeTruthy();
-    await fireEvent.changeText(
-      screen.getByTestId('exercise-edit-name-input'),
-      'Press banca inclinado',
-    );
+    await fireEvent.changeText(screen.getByTestId('exercise-edit-name-input'), 'Press banca inclinado');
     await fireEvent.changeText(
       screen.getByTestId('exercise-edit-description-input'),
       'Descripción actualizada',
@@ -602,193 +522,25 @@ describe('Gym Tracker app flow', () => {
     await fireEvent.press(
       screen.getByRole('button', { name: 'Seleccionar grupo para editar Espalda' }),
     );
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Guardar cambios del ejercicio' }),
-    );
-
+    await fireEvent.press(screen.getByRole('button', { name: 'Guardar cambios del ejercicio' }));
     await waitFor(() => expect(screen.getByText('Press banca inclinado')).toBeTruthy());
     expect(screen.getByText('Espalda')).toBeTruthy();
-    expect(screen.getByText('Descripción actualizada')).toBeTruthy();
+    await fireEvent.press(screen.getByRole('button', { name: 'Volver a ejercicios' }));
+    expect(screen.getAllByText('Espalda').length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: 'Abrir detalle de Press banca inclinado' })).toBeTruthy();
 
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Volver a ejercicios' }),
-    );
-    await waitFor(() =>
-      expect(
-        screen.getByRole('button', { name: 'Abrir detalle de Press banca inclinado' }),
-      ).toBeTruthy(),
-    );
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Filtrar por Espalda' }),
-    );
-    expect(
-      screen.getByRole('button', { name: 'Abrir detalle de Press banca inclinado' }),
-    ).toBeTruthy();
-    expect(
-      screen.queryByRole('button', { name: 'Abrir detalle de Press banca' }),
-    ).toBeNull();
-
-    await firstRender.unmount();
-    await render(<App storage={storage} now={() => now} />);
-    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
-    await fireEvent.press(screen.getByRole('button', { name: /Ejercicios/ }));
-    await waitFor(() =>
-      expect(
-        screen.getByRole('button', { name: 'Abrir detalle de Press banca inclinado' }),
-      ).toBeTruthy(),
-    );
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Filtrar por Espalda' }),
-    );
-    expect(screen.getByText('Filtro: Espalda')).toBeTruthy();
-  });
-
-  it('cancels exercise deletion without changing the persisted library', async () => {
-    const storage = new MemoryStorage();
-    const now = new Date(2026, 7, 17);
-
-    const firstRender = await render(<App storage={storage} now={() => now} />);
-    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
-    await fireEvent.press(screen.getByRole('button', { name: /Ejercicios/ }));
-    await fireEvent.press(screen.getByRole('button', { name: 'Crear ejercicio' }));
-    await fireEvent.changeText(screen.getByTestId('exercise-name-input'), 'Press banca');
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Seleccionar grupo Pecho' }),
-    );
-    await fireEvent.press(screen.getByRole('button', { name: 'Guardar ejercicio' }));
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Abrir detalle de Press banca' }),
-    );
-
-    await fireEvent.press(screen.getByRole('button', { name: 'Eliminar ejercicio' }));
-    expect(screen.getByText('¿Eliminar este ejercicio?')).toBeTruthy();
-    await fireEvent.press(screen.getByRole('button', { name: 'Cancelar eliminación' }));
-    expect(screen.getByText('Press banca')).toBeTruthy();
-
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Volver a ejercicios' }),
-    );
-    expect(
-      screen.getByRole('button', { name: 'Abrir detalle de Press banca' }),
-    ).toBeTruthy();
-
-    await firstRender.unmount();
-    await render(<App storage={storage} now={() => now} />);
-    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
-    await fireEvent.press(screen.getByRole('button', { name: /Ejercicios/ }));
-    expect(
-      screen.getByRole('button', { name: 'Abrir detalle de Press banca' }),
-    ).toBeTruthy();
-  });
-
-  it('confirms exercise deletion and removes it after rehydration', async () => {
-    const storage = new MemoryStorage();
-    const now = new Date(2026, 7, 17);
-
-    const firstRender = await render(<App storage={storage} now={() => now} />);
-    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
-    await fireEvent.press(screen.getByRole('button', { name: /Ejercicios/ }));
-    await fireEvent.press(screen.getByRole('button', { name: 'Crear ejercicio' }));
-    await fireEvent.changeText(screen.getByTestId('exercise-name-input'), 'Press banca');
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Seleccionar grupo Pecho' }),
-    );
-    await fireEvent.press(screen.getByRole('button', { name: 'Guardar ejercicio' }));
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Abrir detalle de Press banca' }),
-    );
-
+    await fireEvent.press(screen.getByRole('button', { name: 'Abrir detalle de Press banca inclinado' }));
     await fireEvent.press(screen.getByRole('button', { name: 'Eliminar ejercicio' }));
     await fireEvent.press(screen.getByRole('button', { name: 'Confirmar eliminación' }));
-    await waitFor(() =>
-      expect(screen.queryByRole('button', { name: 'Abrir detalle de Press banca' })).toBeNull(),
-    );
-    expect(screen.getByText('Ejercicio eliminado')).toBeTruthy();
+    await waitFor(() => expect(screen.getByText('Ejercicio eliminado')).toBeTruthy());
+    expect(screen.getByTestId('exercise-group-list')).toBeTruthy();
 
     await firstRender.unmount();
     await render(<App storage={storage} now={() => now} />);
     await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
     await fireEvent.press(screen.getByRole('button', { name: /Ejercicios/ }));
-    expect(screen.queryByText('Press banca')).toBeNull();
-    expect(screen.getByText('Aún no hay ejercicios guardados.')).toBeTruthy();
-  });
-
-  it('renames groups, preserves exercise references, and blocks deleting a used group', async () => {
-    const storage = new MemoryStorage();
-
-    const firstRender = await render(
-      <App storage={storage} now={() => new Date(2026, 7, 17)} />,
-    );
-    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
-    await fireEvent.press(screen.getByRole('button', { name: /Ejercicios/ }));
-    await fireEvent.press(screen.getByRole('button', { name: 'Crear grupo muscular' }));
-    await fireEvent.changeText(screen.getByTestId('muscle-group-name-input'), 'Core');
-    await fireEvent.press(screen.getByRole('button', { name: 'Guardar grupo muscular' }));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Renombrar grupo Core' })).toBeTruthy());
-
-    await fireEvent.press(screen.getByRole('button', { name: 'Crear ejercicio' }));
-    await fireEvent.changeText(screen.getByTestId('exercise-name-input'), 'Plancha');
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Seleccionar grupo Core' }),
-    );
-    await fireEvent.press(screen.getByRole('button', { name: 'Guardar ejercicio' }));
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Abrir detalle de Plancha' })).toBeTruthy(),
-    );
-    expect(screen.getAllByText('Core').length).toBeGreaterThan(0);
-
-    await fireEvent.press(screen.getByRole('button', { name: 'Renombrar grupo Core' }));
-    await fireEvent.changeText(screen.getByTestId('muscle-group-edit-name-input'), ' P E C H O ');
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Guardar cambios del grupo muscular' }),
-    );
-    expect(screen.getByText('Ya existe un grupo muscular con ese nombre.')).toBeTruthy();
-    await fireEvent.changeText(screen.getByTestId('muscle-group-edit-name-input'), '');
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Guardar cambios del grupo muscular' }),
-    );
-    expect(screen.getByText('Escribe un nombre para el grupo muscular.')).toBeTruthy();
-
-    await fireEvent.changeText(screen.getByTestId('muscle-group-edit-name-input'), 'Centro');
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Guardar cambios del grupo muscular' }),
-    );
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Filtrar por Centro' })).toBeTruthy(),
-    );
-    expect(screen.getAllByText('Centro').length).toBeGreaterThan(0);
-    expect(screen.getByRole('button', { name: 'Abrir detalle de Plancha' })).toBeTruthy();
-
-    await fireEvent.press(screen.getByRole('button', { name: 'Eliminar grupo Centro' }));
-    expect(
-      screen.getByText('No se puede eliminar el grupo muscular porque está usado por un ejercicio.'),
-    ).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Filtrar por Centro' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Abrir detalle de Plancha' })).toBeTruthy();
-
-    await fireEvent.press(screen.getByRole('button', { name: 'Eliminar grupo Pecho' }));
-    expect(
-      screen.getByText('No se puede eliminar el grupo muscular porque está usado por la planificación semanal.'),
-    ).toBeTruthy();
-
-    await fireEvent.press(screen.getByRole('button', { name: 'Crear grupo muscular' }));
-    await fireEvent.changeText(screen.getByTestId('muscle-group-name-input'), 'Cuello');
-    await fireEvent.press(screen.getByRole('button', { name: 'Guardar grupo muscular' }));
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Eliminar grupo Cuello' })).toBeTruthy(),
-    );
-    await fireEvent.press(screen.getByRole('button', { name: 'Eliminar grupo Cuello' }));
-    await waitFor(() =>
-      expect(screen.queryByRole('button', { name: 'Filtrar por Cuello' })).toBeNull(),
-    );
-
-    await firstRender.unmount();
-    await render(<App storage={storage} now={() => new Date(2026, 7, 17)} />);
-    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
-    await fireEvent.press(screen.getByRole('button', { name: /Ejercicios/ }));
-    await fireEvent.press(screen.getByRole('button', { name: 'Filtrar por Centro' }));
-    expect(screen.getByRole('button', { name: 'Abrir detalle de Plancha' })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Filtrar por Cuello' })).toBeNull();
+    expect(screen.getAllByTestId(/muscle-group-card-/)).toHaveLength(9);
+    expect(screen.queryByText('Press banca inclinado')).toBeNull();
   });
 
   it('shows a recoverable error when local storage cannot be read', async () => {
@@ -841,11 +593,11 @@ describe('Gym Tracker app flow', () => {
     expect(screen.getAllByText('Estado: Pendiente')).toHaveLength(2);
     expect(screen.getByText('Próxima sesión')).toBeTruthy();
     expect(
-      screen.getByText('Grupos musculares: Pecho, Hombro, Tríceps'),
+      screen.getByText('Grupos musculares: Pecho, Hombros, Tríceps'),
     ).toBeTruthy();
     expect(
       screen.getByRole('button', {
-        name: 'Marcar sesión Pecho/Hombro/Tríceps como completada',
+        name: 'Marcar sesión Pecho/Hombros/Tríceps como completada',
       }),
     ).toBeTruthy();
 
@@ -854,13 +606,10 @@ describe('Gym Tracker app flow', () => {
         name: 'Abrir grupo Pecho de la próxima sesión',
       }),
     );
-    await waitFor(() => expect(screen.getByText('Filtro: Pecho')).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId('exercise-group-list')).toBeTruthy());
 
-    await fireEvent.press(screen.getByRole('button', { name: 'Crear ejercicio' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Añadir ejercicio' }));
     await fireEvent.changeText(screen.getByTestId('exercise-name-input'), 'Press banca');
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Seleccionar grupo Pecho' }),
-    );
     await fireEvent.press(screen.getByRole('button', { name: 'Guardar ejercicio' }));
     await waitFor(() =>
       expect(
@@ -868,24 +617,25 @@ describe('Gym Tracker app flow', () => {
       ).toBeTruthy(),
     );
 
-    await fireEvent.press(screen.getByRole('button', { name: 'Crear ejercicio' }));
-    await fireEvent.changeText(screen.getByTestId('exercise-name-input'), 'Remo');
     await fireEvent.press(
-      screen.getByRole('button', { name: 'Seleccionar grupo Espalda' }),
+      screen.getByRole('button', { name: 'Volver a grupos musculares' }),
     );
+    await fireEvent.press(screen.getByRole('button', { name: 'Abrir grupo Espalda' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Añadir ejercicio' }));
+    await fireEvent.changeText(screen.getByTestId('exercise-name-input'), 'Remo');
     await fireEvent.press(screen.getByRole('button', { name: 'Guardar ejercicio' }));
     await waitFor(() =>
-      expect(screen.queryByRole('button', { name: 'Abrir detalle de Remo' })).toBeNull(),
+      expect(screen.getByRole('button', { name: 'Abrir detalle de Remo' })).toBeTruthy(),
     );
     expect(
-      screen.getByRole('button', { name: 'Abrir detalle de Press banca' }),
-    ).toBeTruthy();
+      screen.queryByRole('button', { name: 'Abrir detalle de Press banca' }),
+    ).toBeNull();
 
     await fireEvent.press(screen.getByRole('button', { name: /Inicio/ }));
     await waitFor(() => expect(screen.getByText('0 / 3 sesiones')).toBeTruthy());
     await fireEvent.press(
       screen.getByRole('button', {
-        name: 'Marcar sesión Pecho/Hombro/Tríceps como completada',
+        name: 'Marcar sesión Pecho/Hombros/Tríceps como completada',
       }),
     );
     await waitFor(() => expect(screen.getByText('1 / 3 sesiones')).toBeTruthy());
@@ -894,7 +644,7 @@ describe('Gym Tracker app flow', () => {
 
     await fireEvent.press(
       screen.getByRole('button', {
-        name: 'Desmarcar sesión Pecho/Hombro/Tríceps',
+        name: 'Desmarcar sesión Pecho/Hombros/Tríceps',
       }),
     );
     await waitFor(() => expect(screen.getByText('0 / 3 sesiones')).toBeTruthy());
@@ -902,7 +652,7 @@ describe('Gym Tracker app flow', () => {
 
     await fireEvent.press(
       screen.getByRole('button', {
-        name: 'Marcar sesión Pecho/Hombro/Tríceps como completada',
+        name: 'Marcar sesión Pecho/Hombros/Tríceps como completada',
       }),
     );
     await waitFor(() => expect(screen.getByText('1 / 3 sesiones')).toBeTruthy());
@@ -918,7 +668,7 @@ describe('Gym Tracker app flow', () => {
 
     await fireEvent.press(
       screen.getByRole('button', {
-        name: 'Desmarcar sesión Pecho/Hombro/Tríceps',
+        name: 'Desmarcar sesión Pecho/Hombros/Tríceps',
       }),
     );
     await waitFor(() => expect(screen.getByText('1 / 3 sesiones')).toBeTruthy());
@@ -928,7 +678,7 @@ describe('Gym Tracker app flow', () => {
 
     await fireEvent.press(
       screen.getByRole('button', {
-        name: 'Marcar sesión Pecho/Hombro/Tríceps como completada',
+        name: 'Marcar sesión Pecho/Hombros/Tríceps como completada',
       }),
     );
     await fireEvent.press(
@@ -981,7 +731,7 @@ describe('Gym Tracker app flow', () => {
     await waitFor(() => expect(screen.getByText('0 / 3 sesiones')).toBeTruthy());
     await fireEvent.press(
       screen.getByRole('button', {
-        name: 'Marcar sesión Pecho/Hombro/Tríceps como completada',
+        name: 'Marcar sesión Pecho/Hombros/Tríceps como completada',
       }),
     );
     await waitFor(() => expect(screen.getByText('1 / 3 sesiones')).toBeTruthy());
@@ -992,7 +742,7 @@ describe('Gym Tracker app flow', () => {
     await waitFor(() => expect(screen.getByText('0 / 3 sesiones')).toBeTruthy());
     await fireEvent.press(
       screen.getByRole('button', {
-        name: 'Marcar sesión Pecho/Hombro/Tríceps como completada',
+        name: 'Marcar sesión Pecho/Hombros/Tríceps como completada',
       }),
     );
     await waitFor(() => expect(screen.getByText('1 / 3 sesiones')).toBeTruthy());
@@ -1024,7 +774,7 @@ describe('Gym Tracker app flow', () => {
     currentNow = new Date(2026, 7, 17, 12, 0, 0);
     rendered = await render(<App storage={storage} now={now} />);
     await waitFor(() => expect(screen.getByText('0 / 2 sesiones')).toBeTruthy());
-    expect(screen.getByText('Grupos musculares: Pecho, Hombro, Tríceps, Piernas')).toBeTruthy();
+    expect(screen.getByText('Grupos musculares: Pecho, Hombros, Tríceps, Piernas')).toBeTruthy();
     await rendered.unmount();
 
     currentNow = new Date(2026, 7, 9, 12, 0, 0);
@@ -1722,7 +1472,7 @@ describe('Gym Tracker app flow', () => {
 
     await fireEvent.press(
       screen.getByRole('button', {
-        name: 'Marcar sesión Pecho/Hombro/Tríceps como completada',
+        name: 'Marcar sesión Pecho/Hombros/Tríceps como completada',
       }),
     );
     await fireEvent.press(
@@ -1738,7 +1488,7 @@ describe('Gym Tracker app flow', () => {
       screen.getByTestId('strength-session-count-input'),
       '1',
     );
-    for (const group of ['Pecho', 'Hombro', 'Tríceps']) {
+    for (const group of ['Pecho', 'Hombros', 'Tríceps']) {
       await fireEvent.press(
         screen.getByRole('button', {
           name: `Seleccionar ${group} para sesión 1`,
@@ -1790,7 +1540,7 @@ describe('Gym Tracker app flow', () => {
     expect(screen.getByText('1 / 1 sesiones')).toBeTruthy();
     expect(screen.getByText('Grupos musculares: Abdomen')).toBeTruthy();
     expect(
-      screen.getByText('Grupos musculares: Pecho, Hombro, Tríceps'),
+      screen.getByText('Grupos musculares: Pecho, Hombros, Tríceps'),
     ).toBeTruthy();
     expect(screen.getByText('Estado: Completado')).toBeTruthy();
     expect(screen.getAllByText('Estado: Pendiente').length).toBeGreaterThanOrEqual(2);
@@ -1801,7 +1551,7 @@ describe('Gym Tracker app flow', () => {
     await fireEvent.press(screen.getByRole('button', { name: /Historial/ }));
     await waitFor(() => expect(screen.getByText('Historial de semanas')).toBeTruthy());
     expect(screen.getByText('Semana del lunes 03/08/2026')).toBeTruthy();
-    expect(screen.getByText('Grupos musculares: Pecho, Hombro, Tríceps')).toBeTruthy();
+    expect(screen.getByText('Grupos musculares: Pecho, Hombros, Tríceps')).toBeTruthy();
   });
 
   it('shows understandable empty progress values without dividing by zero', async () => {

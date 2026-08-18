@@ -86,6 +86,33 @@ describe('versioned local app state', () => {
     expect(storage.writes).toBe(writesBeforeHydration);
   });
 
+  it('migrates the previous muscle-group snapshot to the fixed catalog', async () => {
+    const now = new Date(2026, 7, 17, 12, 0, 0);
+    const storage = new MemoryStorage();
+    const legacy = createDefaultState(now);
+    legacy.muscleGroups = legacy.muscleGroups
+      .filter((group) => group.id !== 'antebrazos')
+      .map((group) => (group.id === 'hombro' ? { ...group, name: 'Hombro' } : group));
+    legacy.exercises = [
+      {
+        id: 'exercise-legacy-shoulder',
+        name: 'Press militar',
+        muscleGroupId: 'hombro',
+        description: '',
+        media: [],
+        createdAt: '2026-08-17T10:00:00.000Z',
+        updatedAt: '2026-08-17T10:00:00.000Z',
+      },
+    ];
+    await saveAppState(storage, legacy);
+
+    const migrated = await loadAppState(storage, now);
+
+    expect(migrated.muscleGroups).toEqual(DEFAULT_MUSCLE_GROUPS);
+    expect(migrated.exercises[0].muscleGroupId).toBe('hombro');
+    expect(storage.writes).toBe(2);
+  });
+
   it('rejects a weekly HIIT snapshot that exceeds its saved goal', async () => {
     const now = new Date(2026, 7, 17, 12, 0, 0);
     const storage = new MemoryStorage();

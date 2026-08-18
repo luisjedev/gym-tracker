@@ -148,18 +148,19 @@ export interface PersistedAppState {
 export const DEFAULT_MUSCLE_GROUPS: readonly MuscleGroup[] = [
   { id: 'pecho', name: 'Pecho' },
   { id: 'espalda', name: 'Espalda' },
-  { id: 'hombro', name: 'Hombro' },
+  { id: 'hombro', name: 'Hombros' },
   { id: 'biceps', name: 'Bíceps' },
   { id: 'triceps', name: 'Tríceps' },
-  { id: 'piernas', name: 'Piernas' },
-  { id: 'gluteos', name: 'Glúteos' },
+  { id: 'antebrazos', name: 'Antebrazos' },
   { id: 'abdomen', name: 'Abdomen' },
+  { id: 'gluteos', name: 'Glúteos' },
+  { id: 'piernas', name: 'Piernas' },
 ];
 
 export const DEFAULT_STRENGTH_SESSIONS: readonly StrengthSession[] = [
   {
     id: 'fuerza-pecho',
-    name: 'Pecho/Hombro/Tríceps',
+    name: 'Pecho/Hombros/Tríceps',
     muscleGroupIds: ['pecho', 'hombro', 'triceps'],
     completed: false,
   },
@@ -263,6 +264,92 @@ export function createDefaultState(now = new Date()): AppState {
   };
 
   return ensureCurrentPeriods(state, now);
+}
+
+function getCatalogGroupId(
+  group: MuscleGroup,
+  catalogByName: Map<string, string>,
+): string | null {
+  if (DEFAULT_MUSCLE_GROUPS.some((item) => item.id === group.id)) {
+    return group.id;
+  }
+
+  return catalogByName.get(normalizeEntityName(group.name).toLocaleLowerCase()) ?? null;
+}
+
+function remapGroupIds(
+  groupIds: readonly string[],
+  groupIdMap: Map<string, string>,
+): string[] {
+  return [
+    ...new Set(
+      groupIds.flatMap((groupId) => {
+        const mappedGroupId = groupIdMap.get(groupId);
+        return mappedGroupId ? [mappedGroupId] : [];
+      }),
+    ),
+  ];
+}
+
+function migrateToFixedMuscleGroupCatalog(state: AppState): AppState {
+  const isFixedCatalog =
+    state.muscleGroups.length === DEFAULT_MUSCLE_GROUPS.length &&
+    state.muscleGroups.every(
+      (group, index) =>
+        group.id === DEFAULT_MUSCLE_GROUPS[index].id &&
+        group.name === DEFAULT_MUSCLE_GROUPS[index].name,
+    );
+
+  if (isFixedCatalog) {
+    return state;
+  }
+
+  const catalogByName = new Map(
+    DEFAULT_MUSCLE_GROUPS.map((group) => [
+      normalizeEntityName(group.name).toLocaleLowerCase(),
+      group.id,
+    ]),
+  );
+  const groupIdMap = new Map<string, string>();
+
+  for (const group of state.muscleGroups) {
+    const mappedGroupId = getCatalogGroupId(group, catalogByName);
+    if (mappedGroupId) {
+      groupIdMap.set(group.id, mappedGroupId);
+    }
+  }
+
+  const migrateSession = (session: StrengthSession): StrengthSession => {
+    const muscleGroupIds = remapGroupIds(session.muscleGroupIds, groupIdMap);
+    return {
+      ...session,
+      muscleGroupIds: muscleGroupIds.length > 0 ? muscleGroupIds : ['pecho'],
+    };
+  };
+
+  return {
+    ...state,
+    settings: {
+      ...state.settings,
+      strengthSessions: state.settings.strengthSessions.map(migrateSession),
+    },
+    muscleGroups: DEFAULT_MUSCLE_GROUPS.map((group) => ({ ...group })),
+    exercises: state.exercises.flatMap((exercise) => {
+      const muscleGroupId = groupIdMap.get(exercise.muscleGroupId);
+      return muscleGroupId
+        ? [{ ...exercise, muscleGroupId }]
+        : [];
+    }),
+    weeklyRecords: Object.fromEntries(
+      Object.entries(state.weeklyRecords).map(([weekStart, week]) => [
+        weekStart,
+        {
+          ...week,
+          strengthSessions: week.strengthSessions.map(migrateSession),
+        },
+      ]),
+    ),
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -556,7 +643,8 @@ export async function loadAppState(
   }
 
   const persisted = parsePersistedState(rawValue);
-  const state = ensureCurrentPeriods(persisted.state, now);
+  const migratedState = migrateToFixedMuscleGroupCatalog(persisted.state);
+  const state = ensureCurrentPeriods(migratedState, now);
 
   if (state !== persisted.state) {
     await saveAppState(storage, state);

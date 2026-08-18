@@ -26,11 +26,11 @@ import {
 } from '../notifications/waterNotifications';
 import { defaultStorage, type StorageAdapter } from '../storage/appStorage';
 import {
+  DEFAULT_MUSCLE_GROUPS,
   ensureCurrentPeriods,
   formatDateKey,
   getMondayDateKey,
   loadAppState,
-  namesMatch,
   normalizeEntityName,
   saveAppState,
   type AppState,
@@ -67,9 +67,6 @@ export interface AppStateContextValue {
   updateHiitWeeklyGoal(value: number): Promise<void>;
   updateStrengthConfiguration(sessions: StrengthSessionInput[]): Promise<void>;
   updateWaterSettings(settings: WaterSettings): Promise<void>;
-  createMuscleGroup(name: string): Promise<void>;
-  updateMuscleGroup(id: string, name: string): Promise<void>;
-  deleteMuscleGroup(id: string): Promise<void>;
   createExercise(input: NewExerciseInput): Promise<void>;
   updateExercise(id: string, input: NewExerciseInput): Promise<void>;
   deleteExercise(id: string): Promise<void>;
@@ -111,7 +108,7 @@ function normalizeExerciseInput(
     throw new Error('Selecciona un grupo muscular.');
   }
 
-  if (!currentState.muscleGroups.some((group) => group.id === input.muscleGroupId)) {
+  if (!DEFAULT_MUSCLE_GROUPS.some((group) => group.id === input.muscleGroupId)) {
     throw new Error('Selecciona un grupo muscular válido.');
   }
 
@@ -130,7 +127,7 @@ function normalizeStrengthConfiguration(
     throw new Error('El plan semanal debe tener entre 1 y 7 sesiones.');
   }
 
-  const muscleGroupIds = new Set(currentState.muscleGroups.map((group) => group.id));
+  const muscleGroupIds = new Set(DEFAULT_MUSCLE_GROUPS.map((group) => group.id));
   const usedSessionIds = currentState.settings.strengthSessions.map(
     (session) => session.id,
   );
@@ -665,125 +662,6 @@ export function AppStateProvider({
     [notifications, persistState],
   );
 
-  const createMuscleGroup = useCallback(
-    async (name: string) => {
-      const normalizedName = normalizeEntityName(name);
-
-      if (!normalizedName) {
-        throw new Error('Escribe un nombre para el grupo muscular.');
-      }
-
-      const currentState = stateRef.current;
-      if (!currentState) {
-        throw new Error('Los datos todavía se están cargando.');
-      }
-
-      if (
-        currentState.muscleGroups.some((group) =>
-          namesMatch(group.name, normalizedName),
-        )
-      ) {
-        throw new Error('Ya existe un grupo muscular con ese nombre.');
-      }
-
-      const nextGroup = {
-        id: createUniqueId(
-          'group',
-          currentState.muscleGroups.map((group) => group.id),
-        ),
-        name: normalizedName,
-      };
-
-      await persistState({
-        ...currentState,
-        muscleGroups: [...currentState.muscleGroups, nextGroup],
-      });
-    },
-    [persistState],
-  );
-
-  const updateMuscleGroup = useCallback(
-    async (id: string, name: string) => {
-      const currentState = stateRef.current;
-      if (!currentState) {
-        throw new Error('Los datos todavía se están cargando.');
-      }
-
-      if (!currentState.muscleGroups.some((group) => group.id === id)) {
-        throw new Error('No se encontró el grupo muscular.');
-      }
-
-      const normalizedName = normalizeEntityName(name);
-      if (!normalizedName) {
-        throw new Error('Escribe un nombre para el grupo muscular.');
-      }
-
-      if (
-        currentState.muscleGroups.some(
-          (group) => group.id !== id && namesMatch(group.name, normalizedName),
-        )
-      ) {
-        throw new Error('Ya existe un grupo muscular con ese nombre.');
-      }
-
-      await persistState({
-        ...currentState,
-        muscleGroups: currentState.muscleGroups.map((group) =>
-          group.id === id ? { ...group, name: normalizedName } : group,
-        ),
-      });
-    },
-    [persistState],
-  );
-
-  const deleteMuscleGroup = useCallback(
-    async (id: string) => {
-      const currentState = stateRef.current;
-      if (!currentState) {
-        throw new Error('Los datos todavía se están cargando.');
-      }
-
-      if (!currentState.muscleGroups.some((group) => group.id === id)) {
-        throw new Error('No se encontró el grupo muscular.');
-      }
-
-      const usedByExercise = currentState.exercises.some(
-        (exercise) => exercise.muscleGroupId === id,
-      );
-      const usedByPlan =
-        currentState.settings.strengthSessions.some((session) =>
-          session.muscleGroupIds.includes(id),
-        ) ||
-        Object.values(currentState.weeklyRecords).some((week) =>
-          week.strengthSessions.some((session) => session.muscleGroupIds.includes(id)),
-        );
-
-      if (usedByExercise && usedByPlan) {
-        throw new Error(
-          'No se puede eliminar el grupo muscular porque está usado por ejercicios y por la planificación semanal.',
-        );
-      }
-
-      if (usedByExercise) {
-        throw new Error(
-          'No se puede eliminar el grupo muscular porque está usado por un ejercicio.',
-        );
-      }
-
-      if (usedByPlan) {
-        throw new Error(
-          'No se puede eliminar el grupo muscular porque está usado por la planificación semanal.',
-        );
-      }
-
-      await persistState({
-        ...currentState,
-        muscleGroups: currentState.muscleGroups.filter((group) => group.id !== id),
-      });
-    },
-    [persistState],
-  );
-
   const createExercise = useCallback(
     (input: NewExerciseInput) => {
       const operation = exerciseMutationQueueRef.current.then(async () => {
@@ -1161,9 +1039,6 @@ export function AppStateProvider({
       updateHiitWeeklyGoal,
       updateStrengthConfiguration,
       updateWaterSettings,
-      createMuscleGroup,
-      updateMuscleGroup,
-      deleteMuscleGroup,
       createExercise,
       updateExercise,
       deleteExercise,
@@ -1179,9 +1054,7 @@ export function AppStateProvider({
       currentWeekStart,
       addExerciseMedia,
       createExercise,
-      createMuscleGroup,
       deleteExercise,
-      deleteMuscleGroup,
       errorMessage,
       load,
       markHiitSessionCompleted,
@@ -1198,7 +1071,6 @@ export function AppStateProvider({
       removeExerciseMedia,
       updateStrengthConfiguration,
       updateWaterSettings,
-      updateMuscleGroup,
       waterPermissionStatus,
       waterScheduleStatus,
     ],
