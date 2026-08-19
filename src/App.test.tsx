@@ -837,6 +837,35 @@ describe('Gym Tracker app flow', () => {
     await waitFor(() => expect(screen.getByText('0 / 3 sesiones')).toBeTruthy());
   });
 
+  it('applies edited muscle groups to the current strength week immediately', async () => {
+    const storage = new MemoryStorage();
+    const now = new Date(2026, 7, 17, 12, 0, 0);
+
+    await render(<App storage={storage} now={() => now} />);
+    await waitFor(() => expect(screen.getByText('0 / 3 sesiones')).toBeTruthy());
+    await fireEvent.press(screen.getByRole('button', { name: /Ajustes/ }));
+    await waitFor(() =>
+      expect(screen.getByTestId('strength-session-count-input')).toBeTruthy(),
+    );
+
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Seleccionar Piernas para sesión 1' }),
+    );
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Guardar plan semanal de fuerza' }),
+    );
+    await waitFor(() =>
+      expect(screen.getByText('Grupos musculares actualizados inmediatamente')).toBeTruthy(),
+    );
+
+    await fireEvent.press(screen.getByRole('button', { name: /Inicio/ }));
+    await waitFor(() =>
+      expect(
+        screen.getByText('Grupos musculares: Pecho, Hombros, Tríceps, Piernas'),
+      ).toBeTruthy(),
+    );
+  });
+
   it('applies a strength plan on Monday without rewriting the previous week', async () => {
     const storage = new MemoryStorage();
     let currentNow = new Date(2026, 7, 9, 12, 0, 0);
@@ -878,7 +907,7 @@ describe('Gym Tracker app flow', () => {
     );
     await waitFor(() =>
       expect(
-        screen.getByText('Plan semanal guardado para la próxima semana'),
+        screen.getByText('Grupos musculares actualizados inmediatamente'),
       ).toBeTruthy(),
     );
 
@@ -1719,7 +1748,7 @@ describe('Gym Tracker app flow', () => {
     );
     await waitFor(() =>
       expect(
-        screen.getByText('Plan semanal guardado para la próxima semana'),
+        screen.getByText('Grupos musculares actualizados inmediatamente'),
       ).toBeTruthy(),
     );
 
@@ -1754,10 +1783,7 @@ describe('Gym Tracker app flow', () => {
     expect(screen.getByText('0 / 2 sesiones')).toBeTruthy();
     expect(screen.getByText('1 / 3 sesiones')).toBeTruthy();
     expect(screen.getByText('1 / 1 sesiones')).toBeTruthy();
-    expect(screen.getByText('Grupos musculares: Abdomen')).toBeTruthy();
-    expect(
-      screen.getByText('Grupos musculares: Pecho, Hombros, Tríceps'),
-    ).toBeTruthy();
+    expect(screen.getAllByText('Grupos musculares: Abdomen')).toHaveLength(2);
     expect(screen.getByText('Estado: Completado')).toBeTruthy();
     expect(screen.getAllByText('Estado: Pendiente').length).toBeGreaterThanOrEqual(2);
 
@@ -1767,7 +1793,7 @@ describe('Gym Tracker app flow', () => {
     await fireEvent.press(screen.getByRole('button', { name: /Historial/ }));
     await waitFor(() => expect(screen.getByText('Historial de semanas')).toBeTruthy());
     expect(screen.getByText('Semana del lunes 03/08/2026')).toBeTruthy();
-    expect(screen.getByText('Grupos musculares: Pecho, Hombros, Tríceps')).toBeTruthy();
+    expect(screen.getAllByText('Grupos musculares: Abdomen')).toHaveLength(2);
   });
 
   it('shows compact step, strength, and HIIT indicators for each historical week', async () => {

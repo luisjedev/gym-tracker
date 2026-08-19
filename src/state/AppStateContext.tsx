@@ -866,25 +866,53 @@ export function AppStateProvider({
   );
 
   const updateStrengthConfiguration = useCallback(
-    async (sessions: StrengthSessionInput[]) => {
-      const currentState = stateRef.current;
-      if (!currentState) {
-        throw new Error('Los datos todavía se están cargando.');
-      }
+    (sessions: StrengthSessionInput[]) => {
+      const operation = strengthMutationQueueRef.current.then(async () => {
+        const currentState = stateRef.current;
+        if (!currentState) {
+          throw new Error('Los datos todavía se están cargando.');
+        }
 
-      const normalizedSessions = normalizeStrengthConfiguration(currentState, sessions);
-      const nextState = ensureCurrentPeriods(
-        {
-          ...currentState,
-          settings: {
-            ...currentState.settings,
-            strengthSessions: normalizedSessions,
+        const normalizedSessions = normalizeStrengthConfiguration(currentState, sessions);
+        const currentDate = now();
+        const stateWithCurrentPeriods = ensureCurrentPeriods(
+          {
+            ...currentState,
+            settings: {
+              ...currentState.settings,
+              strengthSessions: normalizedSessions,
+            },
           },
-        },
-        now(),
-      );
+          currentDate,
+        );
+        const currentWeekStart = getMondayDateKey(currentDate);
+        const currentWeek = stateWithCurrentPeriods.weeklyRecords[currentWeekStart];
+        const currentStrengthSessions = currentWeek.strengthSessions.map(
+          (session, index) => {
+            const configuredSession = normalizedSessions[index];
 
-      await persistState(nextState);
+            return configuredSession
+              ? {
+                  ...session,
+                  muscleGroupIds: [...configuredSession.muscleGroupIds],
+                }
+              : session;
+          },
+        );
+
+        await persistState({
+          ...stateWithCurrentPeriods,
+          weeklyRecords: {
+            ...stateWithCurrentPeriods.weeklyRecords,
+            [currentWeekStart]: {
+              ...currentWeek,
+              strengthSessions: currentStrengthSessions,
+            },
+          },
+        });
+      });
+      strengthMutationQueueRef.current = operation.catch(() => undefined);
+      return operation;
     },
     [now, persistState],
   );

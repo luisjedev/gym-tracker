@@ -2905,7 +2905,7 @@ export function SettingsScreen() {
 
     try {
       await updateStrengthConfiguration(strengthDraft);
-      setStrengthSuccessMessage('Plan semanal guardado para la próxima semana');
+      setStrengthSuccessMessage('Grupos musculares actualizados inmediatamente');
     } catch (error) {
       setStrengthValidationError(
         error instanceof Error ? error.message : 'No se pudo guardar el plan semanal.',
@@ -3311,7 +3311,7 @@ export function SettingsScreen() {
           {state.settings.strengthSessions.length} sesiones
         </Text>
         <Text style={styles.supportText}>
-          Los cambios se aplicarán el próximo lunes y no modifican la semana actual.
+          Los grupos musculares se actualizan inmediatamente en la semana actual. El número de sesiones se aplicará el próximo lunes.
         </Text>
         <TextInput
           accessibilityLabel="Número de sesiones semanales de fuerza"
