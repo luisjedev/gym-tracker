@@ -91,7 +91,7 @@ export const defaultDailyStepNotificationAdapter: DailyStepNotificationAdapter =
     return Notifications.scheduleNotificationAsync({
       content: {
         title: 'Actualiza tus pasos',
-        body: 'Registra el total de pasos de hoy para guardar tu progreso.',
+        body: '¿Cuanto has caminado hoy gordito?',
         data: { type: DAILY_STEP_REMINDER_DATA_TYPE },
         sound: 'default',
       },

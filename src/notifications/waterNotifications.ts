@@ -152,7 +152,7 @@ export const defaultWaterNotificationAdapter: WaterNotificationAdapter = {
     return Notifications.scheduleNotificationAsync({
       content: {
         title: 'Bebe agua',
-        body: 'Es hora de beber agua.',
+        body: 'Bebe agua gordo, espabila!',
         data: { type: WATER_NOTIFICATION_DATA_TYPE },
         sound: 'default',
       },
