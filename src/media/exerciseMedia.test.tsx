@@ -98,7 +98,7 @@ async function renderExercises(
       storage={storage}
     />,
   );
-  await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
+  await waitFor(() => expect(screen.getByTestId('home-actions')).toBeTruthy());
   await fireEvent.press(screen.getByRole('button', { name: /Ejercicios/ }));
   await settleNavigation();
   await waitFor(() => expect(screen.getByText('Biblioteca de ejercicios')).toBeTruthy());
@@ -207,7 +207,7 @@ describe('exercise multimedia', () => {
         storage={storage}
       />,
     );
-    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId('home-actions')).toBeTruthy());
     await fireEvent.press(screen.getByRole('button', { name: /Ejercicios/ }));
     await settleNavigation();
     await waitFor(() => expect(screen.getByText('Biblioteca de ejercicios')).toBeTruthy());
@@ -243,7 +243,7 @@ describe('exercise multimedia', () => {
         storage={storage}
       />,
     );
-    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId('home-actions')).toBeTruthy());
     await fireEvent.press(screen.getByRole('button', { name: /Ejercicios/ }));
     await settleNavigation();
     await waitFor(() => expect(screen.getByText('Biblioteca de ejercicios')).toBeTruthy());
@@ -284,7 +284,7 @@ describe('exercise multimedia', () => {
         storage={storage}
       />,
     );
-    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId('home-actions')).toBeTruthy());
     await fireEvent.press(screen.getByRole('button', { name: /Ejercicios/ }));
     await settleNavigation();
     await waitFor(() => expect(screen.getByText('Biblioteca de ejercicios')).toBeTruthy());
@@ -324,7 +324,7 @@ describe('exercise multimedia', () => {
         storage={storage}
       />,
     );
-    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId('home-actions')).toBeTruthy());
     await fireEvent.press(screen.getByRole('button', { name: /Ejercicios/ }));
     await settleNavigation();
     await waitFor(() => expect(screen.getByText('Biblioteca de ejercicios')).toBeTruthy());

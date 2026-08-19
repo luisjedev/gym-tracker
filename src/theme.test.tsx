@@ -61,13 +61,13 @@ describe('dark visual system', () => {
     const app = await render(
       <App storage={new MemoryStorage()} now={() => new Date(2026, 7, 17, 12)} />,
     );
-    await waitFor(() => expect(screen.getByText('Pasos de hoy')).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId('home-actions')).toBeTruthy());
 
     expect(StyleSheet.flatten(screen.getByTestId('app-screen').props.style)).toMatchObject({
       backgroundColor: colors.background,
     });
     expect(
-      StyleSheet.flatten(screen.getByTestId('home-card').props.style),
+      StyleSheet.flatten(screen.getByTestId('home-hero').props.style),
     ).toMatchObject({
       backgroundColor: colors.surface,
       borderColor: colors.border,

@@ -1,5 +1,7 @@
 import {
   DEFAULT_DAILY_STEP_GOAL,
+  DEFAULT_DAILY_STEP_REMINDER_SETTINGS,
+  DEFAULT_FASTING_GOAL_HOURS,
   DEFAULT_HIIT_WEEKLY_GOAL,
   DEFAULT_MUSCLE_GROUPS,
   DEFAULT_STRENGTH_SESSIONS,
@@ -48,7 +50,11 @@ describe('versioned local app state', () => {
     expect(state.settings.dailyStepGoal).toBe(DEFAULT_DAILY_STEP_GOAL);
     expect(state.settings.strengthSessions).toEqual(DEFAULT_STRENGTH_SESSIONS);
     expect(state.settings.hiitWeeklyGoal).toBe(DEFAULT_HIIT_WEEKLY_GOAL);
+    expect(state.settings.fastingGoalHours).toBe(DEFAULT_FASTING_GOAL_HOURS);
     expect(state.settings.water).toEqual(DEFAULT_WATER_SETTINGS);
+    expect(state.settings.dailyStepReminder).toEqual(
+      DEFAULT_DAILY_STEP_REMINDER_SETTINGS,
+    );
     expect(state.muscleGroups).toEqual(DEFAULT_MUSCLE_GROUPS);
     expect(state.dailyRecords[formatDateKey(now)]).toEqual({
       date: formatDateKey(now),
@@ -96,6 +102,45 @@ describe('versioned local app state', () => {
     expect(migrated.settings.hiitWeeklyGoal).toBe(3);
     expect(migrated.weeklyRecords[weekStart].hiitGoal).toBe(3);
     expect(migrated.weeklyRecords[weekStart].hiitCompleted).toBe(2);
+    expect(JSON.parse(storage.value ?? '{}').schemaVersion).toBe(
+      STORAGE_SCHEMA_VERSION,
+    );
+  });
+
+  it('adds the fasting goal when migrating a schema version two snapshot', async () => {
+    const now = new Date(2026, 7, 17, 12, 0, 0);
+    const storage = new MemoryStorage();
+    const state = createDefaultState(now);
+    await saveAppState(storage, state);
+
+    const payload = JSON.parse(storage.value ?? '{}');
+    payload.schemaVersion = 2;
+    delete payload.state.settings.fastingGoalHours;
+    storage.value = JSON.stringify(payload);
+
+    const migrated = await loadAppState(storage, now);
+
+    expect(migrated.settings.fastingGoalHours).toBe(DEFAULT_FASTING_GOAL_HOURS);
+    expect(JSON.parse(storage.value ?? '{}').schemaVersion).toBe(
+      STORAGE_SCHEMA_VERSION,
+    );
+  });
+
+  it('adds the disabled daily step reminder when migrating the previous schema', async () => {
+    const now = new Date(2026, 7, 17, 12, 0, 0);
+    const storage = new MemoryStorage();
+    await saveAppState(storage, createDefaultState(now));
+
+    const payload = JSON.parse(storage.value ?? '{}');
+    payload.schemaVersion = 4;
+    delete payload.state.settings.dailyStepReminder;
+    storage.value = JSON.stringify(payload);
+
+    const migrated = await loadAppState(storage, now);
+
+    expect(migrated.settings.dailyStepReminder).toEqual(
+      DEFAULT_DAILY_STEP_REMINDER_SETTINGS,
+    );
     expect(JSON.parse(storage.value ?? '{}').schemaVersion).toBe(
       STORAGE_SCHEMA_VERSION,
     );

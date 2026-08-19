@@ -25,17 +25,28 @@ import {
   type WaterPermissionStatus,
   type WaterReminderTime,
 } from '../notifications/waterNotifications';
+import {
+  defaultDailyStepNotificationAdapter,
+  getDailyStepReminderTime,
+  type DailyStepNotificationAdapter,
+  type DailyStepReminderPermissionStatus,
+  type DailyStepReminderTime,
+} from '../notifications/dailyStepNotifications';
 import { defaultStorage, type StorageAdapter } from '../storage/appStorage';
 import {
   DEFAULT_MUSCLE_GROUPS,
+  MAX_FASTING_GOAL_HOURS,
+  MIN_FASTING_GOAL_HOURS,
   ensureCurrentPeriods,
   formatDateKey,
   getMondayDateKey,
+  isBundledExerciseAssetUri,
   loadAppState,
   normalizeEntityName,
   saveAppState,
   type AppState,
   type DailyRecord,
+  type DailyStepReminderSettings,
   type ExerciseCover,
   type MediaItem,
   type NewExerciseInput,
@@ -47,6 +58,7 @@ import {
 
 export type AppLoadStatus = 'loading' | 'ready' | 'error';
 export type WaterScheduleStatus = 'inactive' | 'scheduled' | 'error';
+export type DailyStepReminderScheduleStatus = 'inactive' | 'scheduled' | 'error';
 
 type NowProvider = () => Date;
 
@@ -57,8 +69,11 @@ export interface AppStateContextValue {
   currentDay: DailyRecord | null;
   currentWeek: WeeklyRecord | null;
   currentTime: Date;
+  refreshCurrentTime(): void;
   waterPermissionStatus: WaterPermissionStatus | null;
   waterScheduleStatus: WaterScheduleStatus;
+  dailyStepReminderPermissionStatus: DailyStepReminderPermissionStatus | null;
+  dailyStepReminderScheduleStatus: DailyStepReminderScheduleStatus;
   updateDailySteps(value: number): Promise<void>;
   updateDailyStepGoal(value: number): Promise<void>;
   startFasting(): Promise<void>;
@@ -67,8 +82,10 @@ export interface AppStateContextValue {
   markHiitSessionCompleted(): Promise<void>;
   undoHiitSession(): Promise<void>;
   updateHiitWeeklyGoal(value: number): Promise<void>;
+  updateFastingGoalHours(value: number): Promise<void>;
   updateStrengthConfiguration(sessions: StrengthSessionInput[]): Promise<void>;
   updateWaterSettings(settings: WaterSettings): Promise<void>;
+  updateDailyStepReminder(settings: DailyStepReminderSettings): Promise<void>;
   pickExerciseCover(): Promise<ExerciseMediaSelection | null>;
   createExercise(
     input: NewExerciseInput,
@@ -87,10 +104,14 @@ export interface AppStateContextValue {
   retry(): void;
 }
 
+type NotificationAdapter = WaterNotificationAdapter &
+  Partial<DailyStepNotificationAdapter>;
+
 export interface AppStateProviderProps extends PropsWithChildren {
   storage?: StorageAdapter;
   now?: NowProvider;
-  notifications?: WaterNotificationAdapter;
+  notifications?: NotificationAdapter;
+  stepNotifications?: DailyStepNotificationAdapter;
   media?: ExerciseMediaAdapter;
 }
 
@@ -174,7 +195,11 @@ async function deleteReplacedExerciseCover(
   previousCover: ExerciseCover | null | undefined,
   nextUri: string | undefined,
 ): Promise<void> {
-  if (!previousCover || previousCover.uri === nextUri) {
+  if (
+    !previousCover ||
+    previousCover.uri === nextUri ||
+    isBundledExerciseAssetUri(previousCover.uri)
+  ) {
     return;
   }
 
@@ -314,6 +339,62 @@ async function restoreWaterReminderSchedule(
   }
 }
 
+const DAILY_STEP_REMINDER_PERMISSION_ERROR =
+  'No se concedió el permiso de notificaciones. Actívalo en Ajustes de Android para recibir avisos.';
+const DAILY_STEP_REMINDER_SCHEDULE_ERROR =
+  'No se pudo actualizar el recordatorio de pasos. Comprueba los permisos e inténtalo de nuevo.';
+
+async function cancelDailyStepReminders(
+  notifications: DailyStepNotificationAdapter,
+): Promise<void> {
+  const identifiers = await notifications.getScheduledDailyStepReminderIds();
+  let firstError: unknown = null;
+
+  for (const identifier of identifiers) {
+    try {
+      await notifications.cancelDailyStepReminder(identifier);
+    } catch (error) {
+      firstError ??= error;
+    }
+  }
+
+  if (firstError) {
+    throw firstError;
+  }
+}
+
+async function replaceDailyStepReminderSchedule(
+  notifications: DailyStepNotificationAdapter,
+  time: DailyStepReminderTime,
+): Promise<void> {
+  await cancelDailyStepReminders(notifications);
+  await notifications.scheduleDailyStepReminder(time);
+}
+
+async function restoreDailyStepReminderSchedule(
+  notifications: DailyStepNotificationAdapter,
+  previousSettings: DailyStepReminderSettings,
+): Promise<boolean> {
+  try {
+    if (previousSettings.enabled) {
+      if ((await notifications.getPermissionStatus()) !== 'granted') {
+        await cancelDailyStepReminders(notifications);
+        return false;
+      }
+
+      await replaceDailyStepReminderSchedule(
+        notifications,
+        getDailyStepReminderTime(previousSettings.time),
+      );
+    } else {
+      await cancelDailyStepReminders(notifications);
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const AppStateContext = createContext<AppStateContextValue | null>(null);
 
 export function AppStateProvider({
@@ -321,8 +402,16 @@ export function AppStateProvider({
   storage = defaultStorage,
   now = defaultNow,
   notifications = defaultWaterNotificationAdapter,
+  stepNotifications: providedStepNotifications,
   media = defaultExerciseMediaAdapter,
 }: AppStateProviderProps) {
+  const stepNotifications =
+    providedStepNotifications ??
+    (typeof notifications.getScheduledDailyStepReminderIds === 'function' &&
+    typeof notifications.scheduleDailyStepReminder === 'function' &&
+    typeof notifications.cancelDailyStepReminder === 'function'
+      ? (notifications as DailyStepNotificationAdapter)
+      : defaultDailyStepNotificationAdapter);
   const [state, setState] = useState<AppState | null>(null);
   const [status, setStatus] = useState<AppLoadStatus>('loading');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -330,12 +419,17 @@ export function AppStateProvider({
     useState<WaterPermissionStatus | null>(null);
   const [waterScheduleStatus, setWaterScheduleStatus] =
     useState<WaterScheduleStatus>('inactive');
+  const [dailyStepReminderPermissionStatus, setDailyStepReminderPermissionStatus] =
+    useState<DailyStepReminderPermissionStatus | null>(null);
+  const [dailyStepReminderScheduleStatus, setDailyStepReminderScheduleStatus] =
+    useState<DailyStepReminderScheduleStatus>('inactive');
   const [currentTime, setCurrentTime] = useState(() => now());
   const stateRef = useRef<AppState | null>(null);
   const strengthMutationQueueRef = useRef(Promise.resolve());
   const hiitMutationQueueRef = useRef(Promise.resolve());
   const fastingMutationQueueRef = useRef(Promise.resolve());
   const waterMutationQueueRef = useRef(Promise.resolve());
+  const dailyStepReminderMutationQueueRef = useRef(Promise.resolve());
   const exerciseMutationQueueRef = useRef(Promise.resolve());
 
   const load = useCallback(
@@ -349,6 +443,17 @@ export function AppStateProvider({
         .then(() => waterLoadGate)
         .catch(() => undefined);
 
+      const previousDailyStepReminderOperation =
+        dailyStepReminderMutationQueueRef.current;
+      let releaseDailyStepReminderLoad!: () => void;
+      const dailyStepReminderLoadGate = new Promise<void>((resolve) => {
+        releaseDailyStepReminderLoad = resolve;
+      });
+      dailyStepReminderMutationQueueRef.current =
+        previousDailyStepReminderOperation
+          .then(() => dailyStepReminderLoadGate)
+          .catch(() => undefined);
+
       if (isInitialLoad) {
         setStatus('loading');
       }
@@ -356,17 +461,26 @@ export function AppStateProvider({
       try {
         const currentDate = now();
         setCurrentTime(currentDate);
-        await previousWaterOperation;
+        await Promise.all([
+          previousWaterOperation,
+          previousDailyStepReminderOperation,
+        ]);
         const loadedState = await loadAppState(storage, currentDate);
         let stateToUse = loadedState;
-        let permission: WaterPermissionStatus | null = null;
+        let waterPermission: WaterPermissionStatus | null = null;
+        let dailyStepReminderPermission: DailyStepReminderPermissionStatus | null =
+          null;
         let waterStatePersistenceFailed = false;
         let waterScheduleFailed = false;
+        let dailyStepReminderStatePersistenceFailed = false;
+        let dailyStepReminderScheduleFailed = false;
         let nextWaterScheduleStatus: WaterScheduleStatus = 'inactive';
+        let nextDailyStepReminderScheduleStatus: DailyStepReminderScheduleStatus =
+          'inactive';
 
         try {
-          permission = await notifications.getPermissionStatus();
-          setWaterPermissionStatus(permission);
+          waterPermission = await notifications.getPermissionStatus();
+          setWaterPermissionStatus(waterPermission);
         } catch {
           // Notification availability must not prevent local data from loading.
           waterScheduleFailed = loadedState.settings.water.enabled;
@@ -375,7 +489,7 @@ export function AppStateProvider({
           }
         }
 
-        if (loadedState.settings.water.enabled && permission === 'granted') {
+        if (loadedState.settings.water.enabled && waterPermission === 'granted') {
           try {
             await notifications.createChannel();
             await replaceWaterReminderSchedule(
@@ -389,7 +503,7 @@ export function AppStateProvider({
           }
         } else if (
           loadedState.settings.water.enabled &&
-          permission !== null
+          waterPermission !== null
         ) {
           try {
             await cancelWaterReminders(notifications);
@@ -401,11 +515,11 @@ export function AppStateProvider({
 
           if (!waterScheduleFailed) {
             stateToUse = {
-              ...loadedState,
+              ...stateToUse,
               settings: {
-                ...loadedState.settings,
+                ...stateToUse.settings,
                 water: {
-                  ...loadedState.settings.water,
+                  ...stateToUse.settings.water,
                   enabled: false,
                 },
               },
@@ -429,16 +543,89 @@ export function AppStateProvider({
           }
         }
 
+        try {
+          dailyStepReminderPermission =
+            await stepNotifications.getPermissionStatus();
+          setDailyStepReminderPermissionStatus(dailyStepReminderPermission);
+        } catch {
+          // Notification availability must not prevent local data from loading.
+          dailyStepReminderScheduleFailed =
+            loadedState.settings.dailyStepReminder.enabled;
+          if (dailyStepReminderScheduleFailed) {
+            nextDailyStepReminderScheduleStatus = 'error';
+          }
+        }
+
+        if (
+          loadedState.settings.dailyStepReminder.enabled &&
+          dailyStepReminderPermission === 'granted'
+        ) {
+          try {
+            await stepNotifications.createChannel();
+            await replaceDailyStepReminderSchedule(
+              stepNotifications,
+              getDailyStepReminderTime(loadedState.settings.dailyStepReminder.time),
+            );
+            nextDailyStepReminderScheduleStatus = 'scheduled';
+          } catch {
+            dailyStepReminderScheduleFailed = true;
+            nextDailyStepReminderScheduleStatus = 'error';
+          }
+        } else if (
+          loadedState.settings.dailyStepReminder.enabled &&
+          dailyStepReminderPermission !== null
+        ) {
+          try {
+            await cancelDailyStepReminders(stepNotifications);
+          } catch {
+            // Do not persist a disabled state while the old reminder may still exist.
+            dailyStepReminderScheduleFailed = true;
+            nextDailyStepReminderScheduleStatus = 'error';
+          }
+
+          if (!dailyStepReminderScheduleFailed) {
+            stateToUse = {
+              ...stateToUse,
+              settings: {
+                ...stateToUse.settings,
+                dailyStepReminder: {
+                  ...stateToUse.settings.dailyStepReminder,
+                  enabled: false,
+                },
+              },
+            };
+            try {
+              await saveAppState(storage, stateToUse);
+            } catch {
+              // Permission is not available, so do not re-create the old reminder.
+              stateToUse = loadedState;
+              dailyStepReminderStatePersistenceFailed = true;
+              nextDailyStepReminderScheduleStatus = 'error';
+            }
+          }
+        } else if (!loadedState.settings.dailyStepReminder.enabled) {
+          try {
+            await cancelDailyStepReminders(stepNotifications);
+          } catch {
+            // Clean up stale reminders without blocking local data loading.
+            dailyStepReminderScheduleFailed = true;
+            nextDailyStepReminderScheduleStatus = 'error';
+          }
+        }
+
         setWaterScheduleStatus(nextWaterScheduleStatus);
+        setDailyStepReminderScheduleStatus(nextDailyStepReminderScheduleStatus);
         stateRef.current = stateToUse;
         setState(stateToUse);
         setStatus('ready');
         setErrorMessage(
-          waterStatePersistenceFailed
+          waterStatePersistenceFailed || dailyStepReminderStatePersistenceFailed
             ? 'No se pudo guardar el cambio. Tus datos anteriores siguen intactos.'
             : waterScheduleFailed
               ? WATER_SCHEDULE_ERROR
-              : null,
+              : dailyStepReminderScheduleFailed
+                ? DAILY_STEP_REMINDER_SCHEDULE_ERROR
+                : null,
         );
       } catch {
         setErrorMessage(
@@ -451,10 +638,15 @@ export function AppStateProvider({
         }
       } finally {
         releaseWaterLoad();
+        releaseDailyStepReminderLoad();
       }
     },
-    [notifications, now, storage],
+    [notifications, now, stepNotifications, storage],
   );
+
+  const refreshCurrentTime = useCallback(() => {
+    setCurrentTime(now());
+  }, [now]);
 
   const persistState = useCallback(
     async (nextState: AppState) => {
@@ -645,6 +837,34 @@ export function AppStateProvider({
     [now, persistState],
   );
 
+  const updateFastingGoalHours = useCallback(
+    async (value: number) => {
+      if (
+        !Number.isSafeInteger(value) ||
+        value < MIN_FASTING_GOAL_HOURS ||
+        value > MAX_FASTING_GOAL_HOURS
+      ) {
+        throw new Error(
+          `El objetivo de ayuno debe estar entre ${MIN_FASTING_GOAL_HOURS} y ${MAX_FASTING_GOAL_HOURS} horas.`,
+        );
+      }
+
+      const currentState = stateRef.current;
+      if (!currentState) {
+        throw new Error('Los datos todavía se están cargando.');
+      }
+
+      await persistState({
+        ...currentState,
+        settings: {
+          ...currentState.settings,
+          fastingGoalHours: value,
+        },
+      });
+    },
+    [persistState],
+  );
+
   const updateStrengthConfiguration = useCallback(
     async (sessions: StrengthSessionInput[]) => {
       const currentState = stateRef.current;
@@ -754,6 +974,99 @@ export function AppStateProvider({
       return operation;
     },
     [notifications, persistState],
+  );
+
+  const updateDailyStepReminder = useCallback(
+    (settings: DailyStepReminderSettings) => {
+      const operation = dailyStepReminderMutationQueueRef.current.then(async () => {
+        const currentState = stateRef.current;
+        if (!currentState) {
+          throw new Error('Los datos todavía se están cargando.');
+        }
+
+        const normalizedSettings = {
+          ...settings,
+          time: settings.time.trim(),
+        };
+        const reminderTime = getDailyStepReminderTime(normalizedSettings.time);
+        const previousSettings = currentState.settings.dailyStepReminder;
+
+        if (normalizedSettings.enabled) {
+          let finalPermission: DailyStepReminderPermissionStatus;
+          try {
+            await stepNotifications.createChannel();
+            const permission = await stepNotifications.getPermissionStatus();
+            setDailyStepReminderPermissionStatus(permission);
+            finalPermission =
+              permission === 'undetermined'
+                ? await stepNotifications.requestPermission()
+                : permission;
+            setDailyStepReminderPermissionStatus(finalPermission);
+          } catch {
+            setDailyStepReminderScheduleStatus('error');
+            throw new Error(DAILY_STEP_REMINDER_SCHEDULE_ERROR);
+          }
+
+          if (finalPermission !== 'granted') {
+            try {
+              await cancelDailyStepReminders(stepNotifications);
+              await persistState({
+                ...currentState,
+                settings: {
+                  ...currentState.settings,
+                  dailyStepReminder: {
+                    ...normalizedSettings,
+                    enabled: false,
+                  },
+                },
+              });
+              setDailyStepReminderScheduleStatus('inactive');
+            } catch (error) {
+              // Permission is not available, so never re-create the old reminder.
+              setDailyStepReminderScheduleStatus('error');
+              throw new Error(DAILY_STEP_REMINDER_SCHEDULE_ERROR, { cause: error });
+            }
+
+            throw new Error(DAILY_STEP_REMINDER_PERMISSION_ERROR);
+          }
+        }
+
+        try {
+          if (normalizedSettings.enabled) {
+            await replaceDailyStepReminderSchedule(stepNotifications, reminderTime);
+          } else {
+            await cancelDailyStepReminders(stepNotifications);
+          }
+
+          await persistState({
+            ...currentState,
+            settings: {
+              ...currentState.settings,
+              dailyStepReminder: normalizedSettings,
+            },
+          });
+          setDailyStepReminderScheduleStatus(
+            normalizedSettings.enabled ? 'scheduled' : 'inactive',
+          );
+        } catch (error) {
+          const restored = await restoreDailyStepReminderSchedule(
+            stepNotifications,
+            previousSettings,
+          );
+          setDailyStepReminderScheduleStatus(
+            restored
+              ? previousSettings.enabled
+                ? 'scheduled'
+                : 'inactive'
+              : 'error',
+          );
+          throw new Error(DAILY_STEP_REMINDER_SCHEDULE_ERROR, { cause: error });
+        }
+      });
+      dailyStepReminderMutationQueueRef.current = operation.catch(() => undefined);
+      return operation;
+    },
+    [persistState, stepNotifications],
   );
 
   const pickExerciseCover = useCallback(async () => {
@@ -978,7 +1291,9 @@ export function AppStateProvider({
         });
 
         try {
-          await media.deletePrivateCopy(existingExercise.cover.uri);
+          if (!isBundledExerciseAssetUri(existingExercise.cover.uri)) {
+            await media.deletePrivateCopy(existingExercise.cover.uri);
+          }
         } catch (error) {
           throw new Error(
             'La portada se eliminó, pero no se pudo limpiar su copia privada.',
@@ -1112,7 +1427,9 @@ export function AppStateProvider({
         });
 
         try {
-          await media.deletePrivateCopy(mediaItem.uri);
+          if (!isBundledExerciseAssetUri(mediaItem.uri)) {
+            await media.deletePrivateCopy(mediaItem.uri);
+          }
         } catch (error) {
           throw new Error(
             'La referencia se eliminó, pero no se pudo limpiar la copia privada.',
@@ -1150,6 +1467,10 @@ export function AppStateProvider({
           ...exercise.media.map((mediaItem) => mediaItem.uri),
         ];
         for (const uri of new Set(privateCopies)) {
+          if (isBundledExerciseAssetUri(uri)) {
+            continue;
+          }
+
           try {
             await media.deletePrivateCopy(uri);
           } catch {
@@ -1282,8 +1603,11 @@ export function AppStateProvider({
         ? state?.weeklyRecords[currentWeekStart] ?? null
         : null,
       currentTime,
+      refreshCurrentTime,
       waterPermissionStatus,
       waterScheduleStatus,
+      dailyStepReminderPermissionStatus,
+      dailyStepReminderScheduleStatus,
       updateDailySteps,
       updateDailyStepGoal,
       startFasting,
@@ -1292,8 +1616,10 @@ export function AppStateProvider({
       markHiitSessionCompleted,
       undoHiitSession,
       updateHiitWeeklyGoal,
+      updateFastingGoalHours,
       updateStrengthConfiguration,
       updateWaterSettings,
+      updateDailyStepReminder,
       pickExerciseCover,
       createExercise,
       updateExercise,
@@ -1310,6 +1636,7 @@ export function AppStateProvider({
       currentDateKey,
       currentTime,
       currentWeekStart,
+      refreshCurrentTime,
       addExerciseMedia,
       createExercise,
       deleteExercise,
@@ -1329,9 +1656,13 @@ export function AppStateProvider({
       updateDailyStepGoal,
       updateExercise,
       updateHiitWeeklyGoal,
+      updateFastingGoalHours,
       removeExerciseMedia,
       updateStrengthConfiguration,
       updateWaterSettings,
+      updateDailyStepReminder,
+      dailyStepReminderPermissionStatus,
+      dailyStepReminderScheduleStatus,
       waterPermissionStatus,
       waterScheduleStatus,
     ],

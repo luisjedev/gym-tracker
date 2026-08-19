@@ -124,6 +124,10 @@ export const defaultExerciseMediaAdapter: ExerciseMediaAdapter = {
   },
 
   async deletePrivateCopy(uri) {
+    if (!uri.startsWith('file://')) {
+      return;
+    }
+
     const file = new File(uri);
     if (file.exists) {
       file.delete();

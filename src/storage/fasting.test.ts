@@ -6,11 +6,11 @@ import {
 } from './fasting';
 
 describe('fasting calculations', () => {
-  it('calculates the first valid eating time after fifteen hours and one minute', () => {
+  it('calculates the first valid eating time from the configured fasting goal', () => {
     const startedAt = new Date(2026, 7, 17, 20, 0, 0).toISOString();
 
-    expect(getFirstValidEatingTime(startedAt).toISOString()).toBe(
-      new Date(2026, 7, 18, 11, 1, 0).toISOString(),
+    expect(getFirstValidEatingTime(startedAt, 14).toISOString()).toBe(
+      new Date(2026, 7, 18, 10, 0, 0).toISOString(),
     );
   });
 
@@ -56,7 +56,7 @@ describe('fasting calculations', () => {
     ]);
     expect(summary.map((day) => day.status)).toEqual([
       'success',
-      'danger',
+      'success',
       'danger',
       'danger',
       'neutral',

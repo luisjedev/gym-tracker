@@ -1,4 +1,5 @@
 import {
+  DEFAULT_FASTING_GOAL_HOURS,
   formatDateKey,
   getMondayDateKey,
   type ActiveFasting,
@@ -6,8 +7,6 @@ import {
 } from './schema';
 
 const MILLISECONDS_IN_MINUTE = 60_000;
-const FIRST_VALID_EATING_OFFSET_MINUTES = 15 * 60 + 1;
-const FASTING_SUCCESS_THRESHOLD_MINUTES = 15 * 60;
 const DAYS_IN_WEEK = 7;
 
 export type FastingDayStatus = 'neutral' | 'success' | 'danger' | 'active';
@@ -51,15 +50,22 @@ export function getAverageFastingDurationMinutes(
   return Math.round(totalMinutes / completed.length);
 }
 
-export function getFirstValidEatingTime(startedAt: string): Date {
+export function getFirstValidEatingTime(
+  startedAt: string,
+  fastingGoalHours = DEFAULT_FASTING_GOAL_HOURS,
+): Date {
   const startedTimestamp = Date.parse(startedAt);
 
   if (!Number.isFinite(startedTimestamp)) {
     throw new Error('La fecha de inicio del ayuno no es válida.');
   }
 
+  if (!Number.isSafeInteger(fastingGoalHours) || fastingGoalHours < 0) {
+    throw new Error('El objetivo de ayuno no es válido.');
+  }
+
   return new Date(
-    startedTimestamp + FIRST_VALID_EATING_OFFSET_MINUTES * MILLISECONDS_IN_MINUTE,
+    startedTimestamp + fastingGoalHours * 60 * MILLISECONDS_IN_MINUTE,
   );
 }
 
@@ -89,7 +95,13 @@ export function getWeeklyFastingSummary(
   completed: readonly CompletedFasting[],
   active: ActiveFasting | null,
   now: Date,
+  fastingGoalHours = DEFAULT_FASTING_GOAL_HOURS,
 ): WeeklyFastingDay[] {
+  if (!Number.isSafeInteger(fastingGoalHours) || fastingGoalHours < 0) {
+    throw new Error('El objetivo de ayuno no es válido.');
+  }
+
+  const fastingGoalMinutes = fastingGoalHours * 60;
   const dates = getWeekDateKeys(now);
   const dateSet = new Set(dates);
   const startedDates = new Set<string>();
@@ -143,9 +155,7 @@ export function getWeeklyFastingSummary(
       return {
         date,
         status:
-          durationMinutes > FASTING_SUCCESS_THRESHOLD_MINUTES
-            ? 'success'
-            : 'danger',
+          durationMinutes >= fastingGoalMinutes ? 'success' : 'danger',
         durationMinutes,
       };
     }

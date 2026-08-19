@@ -18,7 +18,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import {
   calculateFastingDurationMinutes,
-  getAverageFastingDurationMinutes,
   getFirstValidEatingTime,
   getWeeklyFastingSummary,
   type WeeklyFastingDay,
@@ -34,16 +33,24 @@ import {
   type WeeklyGoalStatistics,
 } from './storage/statistics';
 import type { ExerciseMediaSelection } from './media/exerciseMedia';
+import { getExerciseImageSource } from './media/defaultExerciseAssets';
+import { MuscleGroupIcon } from './components/icons';
 import { HealthConnectValidationCard } from './healthConnect/HealthConnectValidationCard';
+import type { DailyStepReminderPermissionStatus } from './notifications/dailyStepNotifications';
 import type { WaterPermissionStatus } from './notifications/waterNotifications';
 import { useAppState } from './state/AppStateContext';
 import {
+  DEFAULT_DAILY_STEP_REMINDER_SETTINGS,
+  DEFAULT_FASTING_GOAL_HOURS,
   DEFAULT_MUSCLE_GROUPS,
   DEFAULT_WATER_SETTINGS,
   formatDateKey,
   getMondayDateKey,
+  MAX_FASTING_GOAL_HOURS,
+  MIN_FASTING_GOAL_HOURS,
   sortExercises,
   type DailyRecord,
+  type DailyStepReminderSettings,
   type Exercise,
   type ExerciseCover,
   type MediaItem,
@@ -108,6 +115,49 @@ function formatTimestamp(timestamp: string): string {
 function formatHistoryDate(dateKey: string): string {
   const [year, month, day] = dateKey.split('-');
   return `${day}/${month}/${year}`;
+}
+
+function formatTime(date: Date): string {
+  return [date.getHours(), date.getMinutes()]
+    .map((part) => String(part).padStart(2, '0'))
+    .join(':');
+}
+
+function getCalendarDayDifference(from: Date, to: Date): number {
+  const fromDay = Date.UTC(from.getFullYear(), from.getMonth(), from.getDate());
+  const toDay = Date.UTC(to.getFullYear(), to.getMonth(), to.getDate());
+  return Math.round((toDay - fromDay) / (24 * 60 * 60 * 1000));
+}
+
+function formatRelativeDateTime(timestamp: string, reference: Date): string {
+  const date = new Date(timestamp);
+  const dayDifference = getCalendarDayDifference(reference, date);
+  const relativeLabel =
+    dayDifference === -1
+      ? 'Ayer'
+      : dayDifference === 0
+        ? 'Hoy'
+        : dayDifference === 1
+          ? 'Mañana'
+          : formatHistoryDate(formatDateKey(date));
+
+  return `${relativeLabel} · ${formatTime(date)}`;
+}
+
+function getCurrentWeekDateKeys(now: Date): string[] {
+  const [year, month, day] = getMondayDateKey(now).split('-').map(Number);
+  const monday = new Date(year, month - 1, day);
+
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(monday);
+    date.setDate(monday.getDate() + index);
+    return formatDateKey(date);
+  });
+}
+
+function formatCompactStepCount(steps: number): string {
+  const roundedThousands = Math.round(Math.max(0, steps) / 1_000);
+  return roundedThousands === 0 ? '0' : `${roundedThousands}k`;
 }
 
 function Screen({ title, children }: { title: string; children: ReactNode }) {
@@ -175,8 +225,9 @@ function CircularProgress({
   const completedSegmentCount = Math.ceil(
     (percentage / 100) * PROGRESS_SEGMENT_COUNT,
   );
-  const segmentWidth = size >= 160 ? 8 : 7;
-  const segmentHeight = size >= 160 ? 22 : 18;
+  const isCompact = size < 120;
+  const segmentWidth = size >= 160 ? 8 : isCompact ? 5 : 7;
+  const segmentHeight = size >= 160 ? 22 : isCompact ? 14 : 18;
   const segmentRadius = size / 2 - 15;
 
   return (
@@ -216,9 +267,30 @@ function CircularProgress({
         );
       })}
       <View pointerEvents="none" style={styles.circularProgressCenter}>
-        <Text style={styles.circularProgressCurrent}>{formatNumber(current)}</Text>
-        <Text style={styles.circularProgressGoal}>de {formatNumber(goal)}</Text>
-        <Text style={styles.circularProgressPercentage}>{percentage}%</Text>
+        <Text
+          style={[
+            styles.circularProgressCurrent,
+            isCompact && styles.circularProgressCurrentCompact,
+          ]}
+        >
+          {formatNumber(current)}
+        </Text>
+        <Text
+          style={[
+            styles.circularProgressGoal,
+            isCompact && styles.circularProgressGoalCompact,
+          ]}
+        >
+          de {formatNumber(goal)}
+        </Text>
+        <Text
+          style={[
+            styles.circularProgressPercentage,
+            isCompact && styles.circularProgressPercentageCompact,
+          ]}
+        >
+          {percentage}%
+        </Text>
       </View>
     </View>
   );
@@ -344,7 +416,10 @@ function getFastingDayHours(durationMinutes: number | null): number {
   return durationMinutes === null ? 0 : getFastingHours(durationMinutes);
 }
 
-function getFastingDayPresentation(status: WeeklyFastingDay['status']) {
+function getFastingDayPresentation(
+  status: WeeklyFastingDay['status'],
+  fastingGoalHours: number,
+) {
   const presentations = {
     neutral: {
       circleStyle: styles.fastingDayCircleNeutral,
@@ -352,11 +427,11 @@ function getFastingDayPresentation(status: WeeklyFastingDay['status']) {
     },
     success: {
       circleStyle: styles.fastingDayCircleSuccess,
-      statusLabel: 'más de 15 horas',
+      statusLabel: `objetivo de ${fastingGoalHours} horas cumplido`,
     },
     danger: {
       circleStyle: styles.fastingDayCircleDanger,
-      statusLabel: '15 horas o menos o sin ayuno válido',
+      statusLabel: `menos de ${fastingGoalHours} horas o sin ayuno válido`,
     },
     active: {
       circleStyle: styles.fastingDayCircleActive,
@@ -367,15 +442,20 @@ function getFastingDayPresentation(status: WeeklyFastingDay['status']) {
   return presentations[status];
 }
 
-function FastingWeekSummary({ days }: { days: readonly WeeklyFastingDay[] }) {
+function FastingWeekSummary({
+  days,
+  fastingGoalHours,
+}: {
+  days: readonly WeeklyFastingDay[];
+  fastingGoalHours: number;
+}) {
   return (
     <View style={styles.fastingWeekSummary} testID="home-fasting-week">
-      <Text style={styles.fastingSummaryTitle}>Resumen semanal</Text>
       <View style={styles.fastingDayList}>
         {days.map((day, index) => {
           const weekday = FASTING_WEEKDAY_LABELS[index];
           const hours = getFastingDayHours(day.durationMinutes);
-          const presentation = getFastingDayPresentation(day.status);
+          const presentation = getFastingDayPresentation(day.status, fastingGoalHours);
 
           return (
             <View
@@ -397,32 +477,173 @@ function FastingWeekSummary({ days }: { days: readonly WeeklyFastingDay[] }) {
           );
         })}
       </View>
-      <Text style={styles.emptyText}>
-        Verde: más de 15 h · rojo: 15 h o menos · amarillo: ayuno activo
-      </Text>
     </View>
   );
 }
 
-function FastingEatingGuidance({
-  startedAt,
+function WeeklyStepsSummary({
+  dailyRecords,
+  defaultStepGoal,
   currentTime,
 }: {
-  startedAt: string;
+  dailyRecords: Record<string, DailyRecord>;
+  defaultStepGoal: number;
   currentTime: Date;
 }) {
-  const firstValidEatingTime = getFirstValidEatingTime(startedAt);
-  const canEat = currentTime.getTime() >= firstValidEatingTime.getTime();
+  const currentDateKey = formatDateKey(currentTime);
 
   return (
-    <View style={styles.fastingGuidance}>
-      <Text style={styles.supportText}>
-        Primera hora válida para comer: {formatTimestamp(firstValidEatingTime.toISOString())}
-      </Text>
-      <Text style={[styles.supportText, canEat && styles.activeMetricText]}>
-        {canEat ? 'Ya puedes comer' : 'Aún no puedes comer'}
-      </Text>
+    <View style={styles.weeklyStepsSummary} testID="home-steps-week">
+      <View style={styles.weeklyStepsList}>
+        {getCurrentWeekDateKeys(currentTime).map((date, index) => {
+          const weekday = FASTING_WEEKDAY_LABELS[index];
+          const day = dailyRecords[date];
+          const isFuture = date > currentDateKey;
+          const steps = day?.steps ?? 0;
+          const stepGoal = day?.stepGoal ?? defaultStepGoal;
+          const isComplete = !isFuture && steps >= stepGoal;
+          const circleStyle = isFuture
+            ? styles.weeklyStepCircleNeutral
+            : isComplete
+              ? styles.weeklyStepCircleSuccess
+              : styles.weeklyStepCircleDanger;
+          const value = isFuture ? '—' : formatCompactStepCount(steps);
+          const statusLabel = isFuture
+            ? 'día futuro'
+            : isComplete
+              ? 'objetivo alcanzado'
+              : 'objetivo no alcanzado';
+
+          return (
+            <View
+              key={date}
+              style={styles.weeklyStepItem}
+              testID={`home-steps-day-${date}`}
+            >
+              <Text style={styles.weeklyStepLabel}>{weekday.short}</Text>
+              <View
+                accessible
+                accessibilityLabel={`${weekday.full}: ${value} pasos, ${statusLabel}`}
+                style={[styles.weeklyStepCircle, circleStyle]}
+                testID={`home-steps-day-${date}-circle`}
+              >
+                <Text style={styles.weeklyStepValue}>{value}</Text>
+              </View>
+            </View>
+          );
+        })}
+      </View>
     </View>
+  );
+}
+
+function HeroSectionDivider({ children }: { children: string }) {
+  return (
+    <View style={styles.heroSectionDivider}>
+      <View style={styles.heroSectionDividerLine} />
+      <Text style={styles.heroSectionDividerText}>{children}</Text>
+      <View style={styles.heroSectionDividerLine} />
+    </View>
+  );
+}
+
+function HomeHero({
+  currentSteps,
+  stepGoal,
+  completedStrength,
+  strengthGoal,
+  hiitCompleted,
+  hiitGoal,
+  weeklyFastingSummary,
+  fastingGoalHours,
+  dailyRecords,
+  currentTime,
+}: {
+  currentSteps: number;
+  stepGoal: number;
+  completedStrength: number;
+  strengthGoal: number;
+  hiitCompleted: number;
+  hiitGoal: number;
+  weeklyFastingSummary: readonly WeeklyFastingDay[];
+  fastingGoalHours: number;
+  dailyRecords: Record<string, DailyRecord>;
+  currentTime: Date;
+}) {
+  return (
+    <Card testID="home-hero">
+      <View style={styles.heroProgressRow} testID="home-hero-progress">
+        <View style={styles.heroProgressItem}>
+          <CircularProgress
+            current={currentSteps}
+            goal={stepGoal}
+            label="Pasos"
+            size={88}
+            testID="home-hero-steps-progress"
+          />
+          <Text style={styles.heroProgressLabel}>Pasos</Text>
+        </View>
+        <View style={styles.heroProgressItem}>
+          <CircularProgress
+            current={completedStrength}
+            goal={strengthGoal}
+            label="Fuerza"
+            size={88}
+            testID="home-hero-strength-progress"
+          />
+          <Text style={styles.heroProgressLabel}>Fuerza</Text>
+        </View>
+        <View style={styles.heroProgressItem}>
+          <CircularProgress
+            current={hiitCompleted}
+            goal={hiitGoal}
+            label="HIIT"
+            size={88}
+            testID="home-hero-hiit-progress"
+          />
+          <Text style={styles.heroProgressLabel}>HIIT</Text>
+        </View>
+      </View>
+      <HeroSectionDivider>Pasos semanales</HeroSectionDivider>
+      <WeeklyStepsSummary
+        currentTime={currentTime}
+        dailyRecords={dailyRecords}
+        defaultStepGoal={stepGoal}
+      />
+      <HeroSectionDivider>Ayuno semanal</HeroSectionDivider>
+      <FastingWeekSummary
+        days={weeklyFastingSummary}
+        fastingGoalHours={fastingGoalHours}
+      />
+    </Card>
+  );
+}
+
+function HomeModal({
+  children,
+  onClose,
+  testID,
+  visible,
+}: {
+  children: ReactNode;
+  onClose: () => void;
+  testID: string;
+  visible: boolean;
+}) {
+  return (
+    <Modal
+      accessibilityViewIsModal
+      animationType="fade"
+      onRequestClose={onClose}
+      transparent
+      visible={visible}
+    >
+      <View style={styles.homeModalBackdrop}>
+        <View style={styles.homeModalCard} testID={testID}>
+          {children}
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -435,6 +656,7 @@ export function HomeScreen() {
     errorMessage,
     finishFasting,
     markHiitSessionCompleted,
+    refreshCurrentTime,
     setStrengthSessionCompleted,
     startFasting,
     undoHiitSession,
@@ -447,6 +669,8 @@ export function HomeScreen() {
       : String(currentDay.steps),
   );
   const [stepsValidationError, setStepsValidationError] = useState<string | null>(null);
+  const [isStepsModalVisible, setIsStepsModalVisible] = useState(false);
+  const [isFinishFastingModalVisible, setIsFinishFastingModalVisible] = useState(false);
 
   useEffect(() => {
     // Keep the form aligned with the local day when the app resumes or rehydrates.
@@ -465,7 +689,6 @@ export function HomeScreen() {
 
   const stepGoal = currentDay?.stepGoal ?? state.settings.dailyStepGoal;
   const currentSteps = currentDay?.steps ?? 0;
-  const remainingSteps = Math.max(stepGoal - currentSteps, 0);
   const strengthSessions = currentWeek?.strengthSessions ?? state.settings.strengthSessions;
   const completedStrength = strengthSessions.filter((session) => session.completed).length;
   const strengthGoal = currentWeek?.strengthGoal ?? strengthSessions.length;
@@ -478,6 +701,8 @@ export function HomeScreen() {
   const hiitGoal = currentWeek?.hiitGoal ?? state.settings.hiitWeeklyGoal;
   const hiitStatus = getStrengthProgressStatus(hiitCompleted, hiitGoal);
   const hiitRemaining = Math.max(hiitGoal - hiitCompleted, 0);
+  const fastingGoalHours =
+    state.settings.fastingGoalHours ?? DEFAULT_FASTING_GOAL_HOURS;
   const activeFasting = state.fasting.active;
   const activeFastingDuration = activeFasting
     ? calculateFastingDurationMinutes(
@@ -485,20 +710,27 @@ export function HomeScreen() {
         currentTime.toISOString(),
       )
     : null;
-  const lastCompletedFasting = getHistoryFastings(state.fasting.completed)[0] ?? null;
   const weeklyFastingSummary = getWeeklyFastingSummary(
     state.fasting.completed,
     activeFasting,
     currentTime,
+    fastingGoalHours,
   );
-  const fastingGuidanceStart = activeFasting?.startedAt ?? lastCompletedFasting?.startedAt;
-  const averageFastingDuration = getAverageFastingDurationMinutes(
-    state.fasting.completed,
-  );
-  const averageFastingDurationLabel =
-    averageFastingDuration === null
-      ? 'Sin ayunos finalizados'
-      : formatFastingDuration(averageFastingDuration);
+
+  function openStepsModal() {
+    setStepsInput(
+      currentDay?.steps === null || currentDay?.steps === undefined
+        ? ''
+        : String(currentDay.steps),
+    );
+    setStepsValidationError(null);
+    setIsStepsModalVisible(true);
+  }
+
+  function closeStepsModal() {
+    setStepsValidationError(null);
+    setIsStepsModalVisible(false);
+  }
 
   async function handleSaveSteps() {
     setStepsValidationError(null);
@@ -511,12 +743,14 @@ export function HomeScreen() {
 
     try {
       await updateDailySteps(parsedSteps);
+      setIsStepsModalVisible(false);
     } catch {
       // El contexto conserva el valor anterior y muestra el error de almacenamiento.
     }
   }
 
   async function handleStartFasting() {
+    setIsFinishFastingModalVisible(false);
     try {
       await startFasting();
     } catch {
@@ -524,9 +758,21 @@ export function HomeScreen() {
     }
   }
 
+  function openFinishFastingModal() {
+    if (activeFasting) {
+      refreshCurrentTime();
+      setIsFinishFastingModalVisible(true);
+    }
+  }
+
+  function closeFinishFastingModal() {
+    setIsFinishFastingModalVisible(false);
+  }
+
   async function handleFinishFasting() {
     try {
       await finishFasting();
+      setIsFinishFastingModalVisible(false);
     } catch {
       // El contexto conserva el estado anterior y muestra el error de almacenamiento.
     }
@@ -562,37 +808,64 @@ export function HomeScreen() {
 
   return (
     <Screen title="Inicio">
-      <Text style={styles.introText}>Tu resumen de hoy y de esta semana.</Text>
+      <HomeHero
+        completedStrength={completedStrength}
+        currentSteps={currentSteps}
+        currentTime={currentTime}
+        dailyRecords={state.dailyRecords}
+        fastingGoalHours={fastingGoalHours}
+        hiitCompleted={hiitCompleted}
+        hiitGoal={hiitGoal}
+        stepGoal={stepGoal}
+        strengthGoal={strengthGoal}
+        weeklyFastingSummary={weeklyFastingSummary}
+      />
 
-      <Card testID="home-card">
-        <SectionLabel>Pasos de hoy</SectionLabel>
-        <View style={styles.dashboardProgressRow}>
-          <CircularProgress
-            current={currentSteps}
-            goal={stepGoal}
-            label="Pasos diarios"
-            size={156}
-            testID="home-daily-progress"
-          />
-          <View style={styles.dashboardProgressCopy}>
-            <Text style={styles.metricText}>
-              {formatNumber(currentSteps)} / {formatNumber(stepGoal)} pasos
-            </Text>
-            <Text style={styles.supportText}>
-              Objetivo: {formatNumber(stepGoal)} pasos
-            </Text>
-            <Text style={styles.supportText}>
-              {remainingSteps > 0
-                ? `Faltan ${formatNumber(remainingSteps)} pasos`
-                : 'Objetivo completado'}
-            </Text>
-            {currentDay?.steps === null || currentDay?.steps === undefined ? (
-              <Text style={styles.emptyText}>
-                Todavía no hay pasos registrados. Introduce el total de hoy.
-              </Text>
-            ) : null}
-          </View>
-        </View>
+      <View style={styles.homeActions} testID="home-actions">
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Añadir pasos"
+          onPress={openStepsModal}
+          style={({ pressed }) => [
+            styles.primaryButton,
+            styles.homeActionButton,
+            pressed && styles.pressed,
+          ]}
+        >
+          <Text style={styles.primaryButtonText}>Añadir pasos</Text>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={activeFasting ? 'Parar ayuno' : 'Empezar ayuno'}
+          onPress={activeFasting ? openFinishFastingModal : () => void handleStartFasting()}
+          style={({ pressed }) => [
+            activeFasting ? styles.dangerButton : styles.secondaryButton,
+            styles.homeActionButton,
+            pressed && styles.pressed,
+          ]}
+        >
+          <Text
+            style={
+              activeFasting ? styles.dangerButtonText : styles.secondaryButtonText
+            }
+          >
+            {activeFasting ? 'Parar ayuno' : 'Empezar ayuno'}
+          </Text>
+        </Pressable>
+      </View>
+      {errorMessage ? (
+        <Text accessibilityRole="alert" style={styles.errorText}>
+          {errorMessage}
+        </Text>
+      ) : null}
+
+      <HomeModal
+        onClose={closeStepsModal}
+        testID="home-steps-modal"
+        visible={isStepsModalVisible}
+      >
+        <Text style={styles.homeModalTitle}>Añadir pasos</Text>
+        <Text style={styles.supportText}>Registra el total de pasos de hoy.</Text>
         <TextInput
           accessibilityLabel="Pasos de hoy"
           autoCapitalize="none"
@@ -615,6 +888,14 @@ export function HomeScreen() {
         >
           <Text style={styles.primaryButtonText}>Guardar pasos</Text>
         </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Cancelar añadir pasos"
+          onPress={closeStepsModal}
+          style={({ pressed }) => [styles.cancelButton, pressed && styles.pressed]}
+        >
+          <Text style={styles.cancelButtonText}>Cancelar</Text>
+        </Pressable>
         {stepsValidationError ? (
           <Text accessibilityRole="alert" style={styles.errorText}>
             {stepsValidationError}
@@ -625,61 +906,67 @@ export function HomeScreen() {
             {errorMessage}
           </Text>
         ) : null}
-      </Card>
+      </HomeModal>
 
-      <Card testID="home-fasting-card">
-        <SectionLabel>Ayuno</SectionLabel>
-        <FastingWeekSummary days={weeklyFastingSummary} />
-        {activeFasting && activeFastingDuration !== null ? (
-          <>
-            <Text style={[styles.metricText, styles.activeMetricText]}>Ayuno activo</Text>
-            <Text style={styles.supportText}>
-              Hora de inicio: {formatTimestamp(activeFasting.startedAt)}
-            </Text>
-            <Text style={styles.supportText}>
-              Duración: {formatFastingDuration(activeFastingDuration)}
-            </Text>
-          </>
-        ) : (
-          <>
-            <Text style={styles.metricText}>No hay un ayuno activo.</Text>
-            <Text style={styles.supportText}>
-              Último ayuno:{' '}
-              {lastCompletedFasting
-                ? formatFastingDuration(lastCompletedFasting.durationMinutes)
-                : 'Sin ayunos finalizados'}
-            </Text>
-          </>
-        )}
-        {fastingGuidanceStart ? (
-          <FastingEatingGuidance
-            currentTime={currentTime}
-            startedAt={fastingGuidanceStart}
-          />
-        ) : null}
-        <Text style={styles.supportText}>
-          Duración media: {averageFastingDurationLabel}
-        </Text>
-        {activeFasting && activeFastingDuration !== null ? (
+      {activeFasting && activeFastingDuration !== null ? (
+        <HomeModal
+          onClose={closeFinishFastingModal}
+          testID="home-fasting-modal"
+          visible={isFinishFastingModalVisible}
+        >
+          <Text style={styles.homeModalTitle}>Parar ayuno</Text>
+          <Text style={styles.supportText}>Revisa los datos antes de terminarlo.</Text>
+          <View style={styles.homeModalDetails}>
+            <View style={styles.homeModalDetail}>
+              <Text style={styles.homeModalDetailLabel}>Cuándo empezó</Text>
+              <Text style={styles.homeModalDetailValue}>
+                Hora de inicio: {formatTimestamp(activeFasting.startedAt)}
+              </Text>
+            </View>
+            <View style={styles.homeModalDetail}>
+              <Text style={styles.homeModalDetailLabel}>Cuánto llevas</Text>
+              <Text style={styles.homeModalDetailValue}>
+                Duración: {formatFastingDuration(activeFastingDuration)}
+              </Text>
+            </View>
+            <View style={styles.homeModalDetail}>
+              <Text style={styles.homeModalDetailLabel}>Cuándo podrías comer</Text>
+              <Text style={styles.homeModalDetailValue}>
+                Comer:{' '}
+                {formatRelativeDateTime(
+                  getFirstValidEatingTime(
+                    activeFasting.startedAt,
+                    fastingGoalHours,
+                  ).toISOString(),
+                  currentTime,
+                )}
+              </Text>
+            </View>
+          </View>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Finalizar ayuno"
+            accessibilityLabel="Confirmar y parar ayuno"
             onPress={() => void handleFinishFasting()}
             style={({ pressed }) => [styles.dangerButton, pressed && styles.pressed]}
+            testID="confirm-fasting-stop-button"
           >
-            <Text style={styles.dangerButtonText}>Finalizar ayuno</Text>
+            <Text style={styles.dangerButtonText}>Confirmar y parar ayuno</Text>
           </Pressable>
-        ) : (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Iniciar ayuno"
-            onPress={() => void handleStartFasting()}
-            style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
+            accessibilityLabel="Cancelar parada del ayuno"
+            onPress={closeFinishFastingModal}
+            style={({ pressed }) => [styles.cancelButton, pressed && styles.pressed]}
           >
-            <Text style={styles.primaryButtonText}>Iniciar ayuno</Text>
+            <Text style={styles.cancelButtonText}>Cancelar</Text>
           </Pressable>
-        )}
-      </Card>
+          {errorMessage ? (
+            <Text accessibilityRole="alert" style={styles.errorText}>
+              {errorMessage}
+            </Text>
+          ) : null}
+        </HomeModal>
+      ) : null}
 
       <Card>
         <SectionLabel>Fuerza semanal</SectionLabel>
@@ -818,7 +1105,7 @@ function ImageMediaViewer({ media }: { media: MediaItem }) {
       accessibilityLabel="Imagen multimedia abierta"
       onError={() => setIsUnavailable(true)}
       resizeMode="contain"
-      source={{ uri: media.uri }}
+      source={getExerciseImageSource(media.uri)}
       style={styles.mediaViewerImage}
     />
   );
@@ -919,7 +1206,7 @@ function ExerciseMediaPreview({
           <Image
             accessibilityLabel={`Miniatura de imagen ${position}`}
             onError={() => setIsImageUnavailable(true)}
-            source={{ uri: media.uri }}
+            source={getExerciseImageSource(media.uri)}
             style={styles.mediaThumbnail}
             testID={`exercise-media-image-${position}`}
           />
@@ -972,7 +1259,7 @@ function ExerciseCoverPreview({
         accessibilityLabel={accessibilityLabel}
         onError={() => setIsUnavailable(true)}
         resizeMode="cover"
-        source={{ uri: cover.uri }}
+        source={getExerciseImageSource(cover.uri)}
         style={styles.exerciseCoverImage}
         testID={testID}
       />
@@ -981,28 +1268,12 @@ function ExerciseCoverPreview({
 
   return (
     <View style={styles.exerciseCoverPlaceholder} testID={testID}>
-      <Text style={styles.exerciseCoverIcon}>{getMuscleGroupIcon(muscleGroupId)}</Text>
+      <MuscleGroupIcon groupId={muscleGroupId} size={42} />
       <Text style={styles.exerciseCoverText}>
         {cover ? 'Portada no disponible' : 'Sin portada'}
       </Text>
     </View>
   );
-}
-
-const MUSCLE_GROUP_ICONS: Record<string, string> = {
-  pecho: '◉',
-  espalda: '▰',
-  hombro: '◆',
-  biceps: '✦',
-  triceps: '✧',
-  antebrazos: '◌',
-  abdomen: '▦',
-  gluteos: '●',
-  piernas: '▰',
-};
-
-function getMuscleGroupIcon(groupId: string): string {
-  return MUSCLE_GROUP_ICONS[groupId] ?? '•';
 }
 
 function formatExerciseCount(count: number): string {
@@ -1655,7 +1926,7 @@ export function ExercisesScreen() {
           </Pressable>
           <View style={styles.groupHeader}>
             <View style={styles.groupHeaderIcon}>
-              <Text style={styles.groupIcon}>{getMuscleGroupIcon(selectedGroup.id)}</Text>
+              <MuscleGroupIcon groupId={selectedGroup.id} size={42} />
             </View>
             <View style={styles.groupHeaderCopy}>
               <Text style={styles.libraryTitle}>{selectedGroup.name}</Text>
@@ -1677,9 +1948,10 @@ export function ExercisesScreen() {
               <SectionLabel>Nuevo ejercicio</SectionLabel>
               <Text style={styles.supportText}>Grupo muscular</Text>
               <View style={styles.selectedGroupField} testID="exercise-selected-group">
-                <Text style={styles.selectedGroupName}>
-                  {getMuscleGroupIcon(selectedGroup.id)} {selectedGroup.name}
-                </Text>
+                <View style={styles.selectedGroupNameRow}>
+                  <MuscleGroupIcon groupId={selectedGroup.id} size={24} />
+                  <Text style={styles.selectedGroupName}>{selectedGroup.name}</Text>
+                </View>
                 <Text style={styles.mutedText}>
                   Este grupo queda preseleccionado y no se puede cambiar en este flujo.
                 </Text>
@@ -1846,7 +2118,7 @@ export function ExercisesScreen() {
               style={({ pressed }) => [styles.muscleGroupCard, pressed && styles.pressed]}
               testID={`muscle-group-card-${group.id}`}
             >
-              <Text style={styles.groupIcon}>{getMuscleGroupIcon(group.id)}</Text>
+              <MuscleGroupIcon groupId={group.id} size={52} />
               <Text style={styles.muscleGroupCardName}>{group.name}</Text>
               <Text style={styles.muscleGroupCardCount}>
                 {formatExerciseCount(exerciseCounts[group.id] ?? 0)}
@@ -2314,8 +2586,11 @@ function SettingsSectionHeader({
   );
 }
 
-function getWaterPermissionLabel(
-  permission: WaterPermissionStatus | null,
+function getNotificationPermissionLabel(
+  permission:
+    | WaterPermissionStatus
+    | DailyStepReminderPermissionStatus
+    | null,
 ): string {
   if (permission === 'granted') {
     return 'Concedido';
@@ -2338,15 +2613,23 @@ export function SettingsScreen() {
     currentDay,
     errorMessage,
     updateDailyStepGoal,
+    updateDailyStepReminder,
+    updateFastingGoalHours,
     updateHiitWeeklyGoal,
     updateStrengthConfiguration,
     updateWaterSettings,
+    dailyStepReminderPermissionStatus,
+    dailyStepReminderScheduleStatus,
     waterPermissionStatus,
     waterScheduleStatus,
   } = useAppState();
   const currentGoal = currentDay?.stepGoal ?? state?.settings.dailyStepGoal ?? 0;
   const configuredHiitGoal = state?.settings.hiitWeeklyGoal ?? 0;
+  const configuredFastingGoalHours =
+    state?.settings.fastingGoalHours ?? DEFAULT_FASTING_GOAL_HOURS;
   const configuredWaterSettings = state?.settings.water ?? DEFAULT_WATER_SETTINGS;
+  const configuredDailyStepReminder =
+    state?.settings.dailyStepReminder ?? DEFAULT_DAILY_STEP_REMINDER_SETTINGS;
   const strengthSessions = useMemo(
     () => state?.settings.strengthSessions ?? [],
     [state?.settings.strengthSessions],
@@ -2357,6 +2640,12 @@ export function SettingsScreen() {
   const [hiitGoal, setHiitGoal] = useState(String(configuredHiitGoal));
   const [hiitValidationError, setHiitValidationError] = useState<string | null>(null);
   const [hiitSuccessMessage, setHiitSuccessMessage] = useState<string | null>(null);
+  const [fastingGoalHours, setFastingGoalHours] = useState(
+    String(configuredFastingGoalHours),
+  );
+  const [isFastingGoalMenuOpen, setIsFastingGoalMenuOpen] = useState(false);
+  const [fastingGoalValidationError, setFastingGoalValidationError] = useState<string | null>(null);
+  const [fastingGoalSuccessMessage, setFastingGoalSuccessMessage] = useState<string | null>(null);
   const [strengthSessionCount, setStrengthSessionCount] = useState(
     String(strengthSessions.length),
   );
@@ -2372,6 +2661,13 @@ export function SettingsScreen() {
   );
   const [waterValidationError, setWaterValidationError] = useState<string | null>(null);
   const [waterSuccessMessage, setWaterSuccessMessage] = useState<string | null>(null);
+  const [dailyStepReminderTime, setDailyStepReminderTime] = useState(
+    configuredDailyStepReminder.time,
+  );
+  const [dailyStepReminderValidationError, setDailyStepReminderValidationError] =
+    useState<string | null>(null);
+  const [dailyStepReminderSuccessMessage, setDailyStepReminderSuccessMessage] =
+    useState<string | null>(null);
 
   useEffect(() => {
     // Refresh the form when a new local day becomes current.
@@ -2386,6 +2682,14 @@ export function SettingsScreen() {
     setHiitGoal(String(configuredHiitGoal));
     setHiitValidationError(null);
   }, [configuredHiitGoal]);
+
+  useEffect(() => {
+    // Refresh the fasting goal when the persisted configuration changes.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setFastingGoalHours(String(configuredFastingGoalHours));
+    setFastingGoalValidationError(null);
+    setIsFastingGoalMenuOpen(false);
+  }, [configuredFastingGoalHours]);
 
   useEffect(() => {
     // Keep the plan editor aligned with a persisted configuration.
@@ -2407,6 +2711,13 @@ export function SettingsScreen() {
     configuredWaterSettings.startTime,
   ]);
 
+  useEffect(() => {
+    // Keep the step reminder editor aligned with the persisted configuration.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setDailyStepReminderTime(configuredDailyStepReminder.time);
+    setDailyStepReminderValidationError(null);
+  }, [configuredDailyStepReminder.time]);
+
   if (!state) {
     return null;
   }
@@ -2415,6 +2726,10 @@ export function SettingsScreen() {
     state.settings.water.enabled &&
     waterPermissionStatus === 'granted' &&
     waterScheduleStatus === 'scheduled';
+  const dailyStepReminderActive =
+    state.settings.dailyStepReminder.enabled &&
+    dailyStepReminderPermissionStatus === 'granted' &&
+    dailyStepReminderScheduleStatus === 'scheduled';
 
   function handleStrengthSessionCountChange(value: string) {
     setStrengthSessionCount(value);
@@ -2531,6 +2846,34 @@ export function SettingsScreen() {
     }
   }
 
+  async function handleSaveFastingGoal() {
+    setFastingGoalValidationError(null);
+    setFastingGoalSuccessMessage(null);
+    const parsedGoal = parseNonNegativeInteger(fastingGoalHours);
+
+    if (
+      parsedGoal === null ||
+      parsedGoal < MIN_FASTING_GOAL_HOURS ||
+      parsedGoal > MAX_FASTING_GOAL_HOURS
+    ) {
+      setFastingGoalValidationError(
+        `Selecciona un objetivo entre ${MIN_FASTING_GOAL_HOURS} y ${MAX_FASTING_GOAL_HOURS} horas.`,
+      );
+      return;
+    }
+
+    try {
+      await updateFastingGoalHours(parsedGoal);
+      setFastingGoalSuccessMessage('Objetivo de ayuno guardado');
+    } catch (error) {
+      setFastingGoalValidationError(
+        error instanceof Error
+          ? error.message
+          : 'No se pudo guardar el objetivo de ayuno.',
+      );
+    }
+  }
+
   async function handleWaterToggle(enabled: boolean) {
     if (enabled) {
       await handleSaveWaterSettings(true);
@@ -2578,6 +2921,56 @@ export function SettingsScreen() {
         error instanceof Error
           ? error.message
           : 'No se pudo guardar la configuración de agua.',
+      );
+    }
+  }
+
+  async function handleDailyStepReminderToggle(enabled: boolean) {
+    if (enabled) {
+      await handleSaveDailyStepReminder(true);
+      return;
+    }
+
+    setDailyStepReminderValidationError(null);
+    setDailyStepReminderSuccessMessage(null);
+
+    try {
+      await updateDailyStepReminder({
+        ...configuredDailyStepReminder,
+        enabled: false,
+      });
+      setDailyStepReminderSuccessMessage('Recordatorio de pasos desactivado');
+    } catch (error) {
+      setDailyStepReminderValidationError(
+        error instanceof Error
+          ? error.message
+          : 'No se pudo desactivar el recordatorio de pasos.',
+      );
+    }
+  }
+
+  async function handleSaveDailyStepReminder(
+    enabled = configuredDailyStepReminder.enabled,
+  ) {
+    setDailyStepReminderValidationError(null);
+    setDailyStepReminderSuccessMessage(null);
+    const settings: DailyStepReminderSettings = {
+      enabled,
+      time: dailyStepReminderTime.trim(),
+    };
+
+    try {
+      await updateDailyStepReminder(settings);
+      setDailyStepReminderSuccessMessage(
+        enabled
+          ? 'Recordatorio de pasos activado'
+          : 'Recordatorio de pasos desactivado',
+      );
+    } catch (error) {
+      setDailyStepReminderValidationError(
+        error instanceof Error
+          ? error.message
+          : 'No se pudo guardar el recordatorio de pasos.',
       );
     }
   }
@@ -2661,6 +3054,147 @@ export function SettingsScreen() {
           <Text style={styles.successText}>
             {successMessage}
           </Text>
+        ) : null}
+      </Card>
+
+      <Card testID="settings-daily-step-reminder-card">
+        <SettingsSectionHeader description="Recibe un aviso local al final del día para actualizar manualmente los pasos de hoy. No sustituye los recordatorios de agua.">
+          <SectionLabel>Recordatorio de pasos</SectionLabel>
+        </SettingsSectionHeader>
+        <View style={styles.waterStatusGrid} testID="daily-step-reminder-status-grid">
+          <View style={styles.waterStatusItem}>
+            <Text style={styles.compactMetricLabel}>Estado</Text>
+            <Text
+              style={[
+                styles.waterStatusValue,
+                dailyStepReminderActive && styles.waterStatusValueActive,
+              ]}
+              testID="daily-step-reminder-schedule-status"
+            >
+              {dailyStepReminderActive ? 'Programado' : 'No programado'}
+            </Text>
+          </View>
+          <View style={styles.waterStatusItem}>
+            <Text style={styles.compactMetricLabel}>Permiso</Text>
+            <Text
+              style={styles.waterStatusValue}
+              testID="daily-step-reminder-permission-status"
+            >
+              {getNotificationPermissionLabel(dailyStepReminderPermissionStatus)}
+            </Text>
+          </View>
+        </View>
+        <View style={styles.switchRow}>
+          <View style={styles.switchCopy}>
+            <Text style={styles.supportText}>
+              {dailyStepReminderPermissionStatus === 'denied'
+                ? 'Permiso de notificaciones denegado. Actívalo en Ajustes de Android para recibir avisos.'
+                : dailyStepReminderScheduleStatus === 'error'
+                  ? 'No se pudo actualizar el aviso. Revisa los permisos e inténtalo de nuevo.'
+                  : 'El registro seguirá siendo manual: la notificación solo te recuerda introducir el total del reloj.'}
+            </Text>
+          </View>
+          <Switch
+            accessibilityLabel="Activar recordatorio de pasos"
+            accessibilityRole="switch"
+            onValueChange={(enabled) => void handleDailyStepReminderToggle(enabled)}
+            thumbColor={colors.text}
+            trackColor={{ false: colors.neutralSurface, true: colors.accent }}
+            testID="daily-step-reminder-enabled-switch"
+            value={state.settings.dailyStepReminder.enabled}
+          />
+        </View>
+        <Text style={styles.settingsInputLabel}>Hora del aviso</Text>
+        <TextInput
+          accessibilityLabel="Hora del recordatorio de pasos"
+          autoCapitalize="none"
+          onChangeText={(value) => {
+            setDailyStepReminderTime(value);
+            setDailyStepReminderValidationError(null);
+            setDailyStepReminderSuccessMessage(null);
+          }}
+          placeholder="23:00"
+          placeholderTextColor={colors.textMuted}
+          style={styles.input}
+          testID="daily-step-reminder-time-input"
+          value={dailyStepReminderTime}
+        />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Guardar recordatorio de pasos"
+          onPress={() => void handleSaveDailyStepReminder()}
+          style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
+        >
+          <Text style={styles.primaryButtonText}>Guardar recordatorio de pasos</Text>
+        </Pressable>
+        {dailyStepReminderValidationError ? (
+          <Text accessibilityRole="alert" style={styles.errorText}>
+            {dailyStepReminderValidationError}
+          </Text>
+        ) : null}
+        {dailyStepReminderSuccessMessage ? (
+          <Text style={styles.successText}>{dailyStepReminderSuccessMessage}</Text>
+        ) : null}
+      </Card>
+
+      <Card testID="settings-fasting-card">
+        <SettingsSectionHeader description="El objetivo se aplica inmediatamente al ayuno activo y a los círculos semanales.">
+          <SectionLabel>Horas objetivo de ayuno</SectionLabel>
+        </SettingsSectionHeader>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Seleccionar horas objetivo de ayuno"
+          accessibilityState={{ expanded: isFastingGoalMenuOpen }}
+          onPress={() => setIsFastingGoalMenuOpen((open) => !open)}
+          style={({ pressed }) => [styles.dropdownButton, pressed && styles.pressed]}
+          testID="fasting-goal-dropdown"
+        >
+          <Text style={styles.dropdownButtonText}>{fastingGoalHours} h</Text>
+          <Text style={styles.dropdownButtonIcon}>{isFastingGoalMenuOpen ? '⌃' : '⌄'}</Text>
+        </Pressable>
+        {isFastingGoalMenuOpen ? (
+          <View style={styles.dropdownOptions}>
+            {Array.from(
+              { length: MAX_FASTING_GOAL_HOURS - MIN_FASTING_GOAL_HOURS + 1 },
+              (_, index) => String(MIN_FASTING_GOAL_HOURS + index),
+            ).map((option) => (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`${option} horas`}
+                accessibilityState={{ selected: option === fastingGoalHours }}
+                key={option}
+                onPress={() => {
+                  setFastingGoalHours(option);
+                  setFastingGoalValidationError(null);
+                  setFastingGoalSuccessMessage(null);
+                  setIsFastingGoalMenuOpen(false);
+                }}
+                style={({ pressed }) => [
+                  styles.dropdownOption,
+                  option === fastingGoalHours && styles.dropdownOptionSelected,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Text style={styles.dropdownOptionText}>{option} h</Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Guardar objetivo de ayuno"
+          onPress={() => void handleSaveFastingGoal()}
+          style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
+        >
+          <Text style={styles.primaryButtonText}>Guardar objetivo de ayuno</Text>
+        </Pressable>
+        {fastingGoalValidationError ? (
+          <Text accessibilityRole="alert" style={styles.errorText}>
+            {fastingGoalValidationError}
+          </Text>
+        ) : null}
+        {fastingGoalSuccessMessage ? (
+          <Text style={styles.successText}>{fastingGoalSuccessMessage}</Text>
         ) : null}
       </Card>
 
@@ -2795,7 +3329,7 @@ export function SettingsScreen() {
           <View style={styles.waterStatusItem}>
             <Text style={styles.compactMetricLabel}>Permiso</Text>
             <Text style={styles.waterStatusValue} testID="water-permission-status">
-              {getWaterPermissionLabel(waterPermissionStatus)}
+              {getNotificationPermissionLabel(waterPermissionStatus)}
             </Text>
           </View>
         </View>
@@ -3076,6 +3610,49 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
   },
+  dropdownButton: {
+    alignItems: 'center',
+    backgroundColor: colors.surfaceSunken,
+    borderColor: colors.borderStrong,
+    borderRadius: 12,
+    borderWidth: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    minHeight: 52,
+    paddingHorizontal: 14,
+  },
+  dropdownButtonText: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  dropdownButtonIcon: {
+    color: colors.accent,
+    fontSize: 22,
+    fontWeight: '800',
+  },
+  dropdownOptions: {
+    backgroundColor: colors.surfaceSunken,
+    borderColor: colors.borderStrong,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 2,
+    padding: 4,
+  },
+  dropdownOption: {
+    borderRadius: 8,
+    minHeight: 42,
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+  },
+  dropdownOptionSelected: {
+    backgroundColor: colors.accentSoft,
+  },
+  dropdownOptionText: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '700',
+  },
   settingsCatalogList: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -3102,6 +3679,50 @@ const styles = StyleSheet.create({
   dashboardProgressCopy: {
     flex: 1,
     gap: 6,
+  },
+  homeActions: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  homeActionButton: {
+    flex: 1,
+    minHeight: 58,
+    paddingHorizontal: 10,
+  },
+  heroProgressRow: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    gap: 2,
+    justifyContent: 'space-between',
+  },
+  heroProgressItem: {
+    alignItems: 'center',
+    flex: 1,
+    gap: 6,
+  },
+  heroProgressLabel: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  heroSectionDivider: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 4,
+  },
+  heroSectionDividerLine: {
+    backgroundColor: colors.border,
+    flex: 1,
+    height: 1,
+  },
+  heroSectionDividerText: {
+    color: colors.textMuted,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
   },
   circularProgress: {
     alignItems: 'center',
@@ -3135,11 +3756,19 @@ const styles = StyleSheet.create({
     lineHeight: 25,
     textAlign: 'center',
   },
+  circularProgressCurrentCompact: {
+    fontSize: 14,
+    lineHeight: 17,
+  },
   circularProgressGoal: {
     color: colors.textSecondary,
     fontSize: 12,
     lineHeight: 15,
     textAlign: 'center',
+  },
+  circularProgressGoalCompact: {
+    fontSize: 9,
+    lineHeight: 11,
   },
   circularProgressPercentage: {
     color: colors.accent,
@@ -3147,6 +3776,10 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     lineHeight: 16,
     textAlign: 'center',
+  },
+  circularProgressPercentageCompact: {
+    fontSize: 10,
+    lineHeight: 12,
   },
   sectionLabel: {
     color: colors.accent,
@@ -3225,6 +3858,48 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '700',
     lineHeight: 11,
+  },
+  weeklyStepsSummary: {
+    gap: 8,
+  },
+  weeklyStepsList: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  weeklyStepItem: {
+    alignItems: 'center',
+    flex: 1,
+    gap: 4,
+  },
+  weeklyStepLabel: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  weeklyStepCircle: {
+    alignItems: 'center',
+    borderRadius: 999,
+    borderWidth: 2,
+    height: 42,
+    justifyContent: 'center',
+    width: 42,
+  },
+  weeklyStepCircleNeutral: {
+    backgroundColor: colors.surfaceSunken,
+    borderColor: colors.border,
+  },
+  weeklyStepCircleSuccess: {
+    backgroundColor: colors.successSurface,
+    borderColor: colors.accent,
+  },
+  weeklyStepCircleDanger: {
+    backgroundColor: colors.dangerSurface,
+    borderColor: colors.danger,
+  },
+  weeklyStepValue: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '800',
   },
   fastingGuidance: {
     gap: 4,
@@ -3392,12 +4067,6 @@ const styles = StyleSheet.create({
     padding: 10,
     width: '31%',
   },
-  groupIcon: {
-    color: colors.accent,
-    fontSize: 28,
-    fontWeight: '800',
-    lineHeight: 34,
-  },
   muscleGroupCardName: {
     color: colors.text,
     fontSize: 14,
@@ -3447,6 +4116,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: 4,
     padding: 12,
+  },
+  selectedGroupNameRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
   },
   selectedGroupName: {
     color: colors.accent,
@@ -3527,6 +4201,51 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     textAlign: 'center',
   },
+  homeModalBackdrop: {
+    alignItems: 'center',
+    backgroundColor: colors.overlay,
+    flex: 1,
+    justifyContent: 'center',
+    padding: 20,
+  },
+  homeModalCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.borderStrong,
+    borderRadius: 18,
+    borderWidth: 1,
+    gap: 12,
+    maxWidth: 420,
+    padding: 18,
+    width: '100%',
+  },
+  homeModalTitle: {
+    color: colors.text,
+    fontSize: 24,
+    fontWeight: '800',
+  },
+  homeModalDetails: {
+    backgroundColor: colors.surfaceSunken,
+    borderColor: colors.border,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 10,
+    padding: 12,
+  },
+  homeModalDetail: {
+    gap: 2,
+  },
+  homeModalDetailLabel: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  homeModalDetailValue: {
+    color: colors.text,
+    fontSize: 17,
+    fontWeight: '700',
+  },
   mediaViewerBackdrop: {
     alignItems: 'center',
     backgroundColor: colors.overlay,
@@ -3576,11 +4295,6 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     overflow: 'hidden',
     width: '100%',
-  },
-  exerciseCoverIcon: {
-    color: colors.accent,
-    fontSize: 26,
-    fontWeight: '800',
   },
   exerciseCoverText: {
     color: colors.textMuted,

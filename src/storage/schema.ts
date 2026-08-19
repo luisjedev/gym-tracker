@@ -1,15 +1,25 @@
 import type { StorageAdapter } from './appStorage';
 import { APP_STORAGE_KEY } from './appStorage';
 
-export const STORAGE_SCHEMA_VERSION = 2;
+export const STORAGE_SCHEMA_VERSION = 5;
 const LEGACY_STORAGE_SCHEMA_VERSION = 1;
+const FASTING_GOAL_STORAGE_SCHEMA_VERSION = 2;
+const PREVIOUS_STORAGE_SCHEMA_VERSION = 3;
+const DAILY_STEP_REMINDER_STORAGE_SCHEMA_VERSION = 4;
 export const DEFAULT_DAILY_STEP_GOAL = 7_000;
 export const DEFAULT_HIIT_WEEKLY_GOAL = 1;
+export const DEFAULT_FASTING_GOAL_HOURS = 14;
+export const MIN_FASTING_GOAL_HOURS = 12;
+export const MAX_FASTING_GOAL_HOURS = 20;
 export const DEFAULT_WATER_SETTINGS = {
   enabled: false,
   startTime: '08:00',
   endTime: '22:00',
   intervalHours: 2,
+} as const;
+export const DEFAULT_DAILY_STEP_REMINDER_SETTINGS = {
+  enabled: false,
+  time: '23:00',
 } as const;
 
 export interface MuscleGroup {
@@ -34,6 +44,11 @@ export interface WaterSettings {
   startTime: string;
   endTime: string;
   intervalHours: number;
+}
+
+export interface DailyStepReminderSettings {
+  enabled: boolean;
+  time: string;
 }
 
 export interface DailyRecord {
@@ -137,7 +152,9 @@ export interface AppState {
     dailyStepGoal: number;
     strengthSessions: StrengthSession[];
     hiitWeeklyGoal: number;
+    fastingGoalHours: number;
     water: WaterSettings;
+    dailyStepReminder: DailyStepReminderSettings;
   };
   muscleGroups: MuscleGroup[];
   exercises: Exercise[];
@@ -165,6 +182,32 @@ export const DEFAULT_MUSCLE_GROUPS: readonly MuscleGroup[] = [
   { id: 'gluteos', name: 'Glúteos' },
   { id: 'piernas', name: 'Piernas' },
 ];
+
+export const DEFAULT_EXERCISE_ASSET_GROUP_IDS: readonly string[] = [
+  'pecho',
+  'espalda',
+  'hombro',
+  'biceps',
+  'triceps',
+  'abdomen',
+  'gluteos',
+  'piernas',
+];
+export const DEFAULT_EXERCISE_ASSET_URI_PREFIX = 'asset://exercise/';
+export const DEFAULT_EXERCISE_IMAGE_WIDTH = 1_055;
+export const DEFAULT_EXERCISE_IMAGE_HEIGHT = 1_491;
+
+export function getDefaultExerciseAssetUri(groupId: string): string | null {
+  return DEFAULT_EXERCISE_ASSET_GROUP_IDS.includes(groupId)
+    ? `${DEFAULT_EXERCISE_ASSET_URI_PREFIX}${groupId}`
+    : null;
+}
+
+export function isBundledExerciseAssetUri(uri: string): boolean {
+  return DEFAULT_EXERCISE_ASSET_GROUP_IDS.some(
+    (groupId) => getDefaultExerciseAssetUri(groupId) === uri,
+  );
+}
 
 export const DEFAULT_STRENGTH_SESSIONS: readonly StrengthSession[] = [
   {
@@ -254,16 +297,94 @@ export function ensureCurrentPeriods(state: AppState, now: Date): AppState {
   return nextState;
 }
 
+function createDefaultExercises(
+  timestamp: string,
+  reservedIds: readonly string[] = [],
+): Exercise[] {
+  const usedIds = new Set(reservedIds);
+  const createAssetId = (prefix: string, groupId: string): string => {
+    const baseId = `${prefix}-general-${groupId}`;
+    let id = baseId;
+    let suffix = 2;
+
+    while (usedIds.has(id)) {
+      id = `${baseId}-${suffix}`;
+      suffix += 1;
+    }
+
+    usedIds.add(id);
+    return id;
+  };
+
+  return DEFAULT_MUSCLE_GROUPS.map((group) => {
+    const assetUri = getDefaultExerciseAssetUri(group.id);
+    const cover = assetUri
+      ? {
+          id: createAssetId('cover', group.id),
+          uri: assetUri,
+          width: DEFAULT_EXERCISE_IMAGE_WIDTH,
+          height: DEFAULT_EXERCISE_IMAGE_HEIGHT,
+        }
+      : null;
+    const media = assetUri
+      ? [
+          {
+            id: createAssetId('media', group.id),
+            type: 'image' as const,
+            uri: assetUri,
+            width: DEFAULT_EXERCISE_IMAGE_WIDTH,
+            height: DEFAULT_EXERCISE_IMAGE_HEIGHT,
+          },
+        ]
+      : [];
+
+    return {
+      id: createAssetId('exercise', group.id),
+      name: 'General',
+      muscleGroupId: group.id,
+      description: '',
+      cover,
+      media,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+  });
+}
+
+function addMissingDefaultExercises(state: AppState, timestamp: string): AppState {
+  const reservedIds = state.exercises.flatMap((exercise) => [
+    exercise.id,
+    ...(exercise.cover ? [exercise.cover.id] : []),
+    ...exercise.media.map((mediaItem) => mediaItem.id),
+  ]);
+  const defaultExercises = createDefaultExercises(timestamp, reservedIds);
+  const missingExercises = defaultExercises.filter(
+    (defaultExercise) =>
+      !state.exercises.some(
+        (exercise) =>
+          exercise.muscleGroupId === defaultExercise.muscleGroupId &&
+          namesMatch(exercise.name, defaultExercise.name),
+      ),
+  );
+
+  return missingExercises.length > 0
+    ? { ...state, exercises: [...state.exercises, ...missingExercises] }
+    : state;
+}
+
 export function createDefaultState(now = new Date()): AppState {
+  const timestamp = now.toISOString();
   const state: AppState = {
     settings: {
       dailyStepGoal: DEFAULT_DAILY_STEP_GOAL,
       strengthSessions: copyStrengthSessions(DEFAULT_STRENGTH_SESSIONS),
       hiitWeeklyGoal: DEFAULT_HIIT_WEEKLY_GOAL,
+      fastingGoalHours: DEFAULT_FASTING_GOAL_HOURS,
       water: { ...DEFAULT_WATER_SETTINGS },
+      dailyStepReminder: { ...DEFAULT_DAILY_STEP_REMINDER_SETTINGS },
     },
     muscleGroups: DEFAULT_MUSCLE_GROUPS.map((group) => ({ ...group })),
-    exercises: [],
+    exercises: createDefaultExercises(timestamp),
     dailyRecords: {},
     weeklyRecords: {},
     fasting: {
@@ -425,7 +546,7 @@ function isValidTimestamp(value: unknown): value is string {
   return typeof value === 'string' && Number.isFinite(Date.parse(value));
 }
 
-function parseWaterClockMinutes(value: unknown): number | null {
+function parseClockMinutes(value: unknown): number | null {
   if (typeof value !== 'string') {
     return null;
   }
@@ -438,13 +559,23 @@ function parseWaterClockMinutes(value: unknown): number | null {
   return Number(match[1]) * 60 + Number(match[2]);
 }
 
+function isValidDailyStepReminderSettings(
+  value: unknown,
+): value is DailyStepReminderSettings {
+  return (
+    isRecord(value) &&
+    typeof value.enabled === 'boolean' &&
+    parseClockMinutes(value.time) !== null
+  );
+}
+
 export function isValidWaterSettings(value: unknown): value is WaterSettings {
   if (!isRecord(value)) {
     return false;
   }
 
-  const startMinutes = parseWaterClockMinutes(value.startTime);
-  const endMinutes = parseWaterClockMinutes(value.endTime);
+  const startMinutes = parseClockMinutes(value.startTime);
+  const endMinutes = parseClockMinutes(value.endTime);
 
   return (
     typeof value.enabled === 'boolean' &&
@@ -503,13 +634,19 @@ function isOptionalNonNegativeNumber(value: unknown): boolean {
   );
 }
 
+function isValidExerciseAssetUri(value: unknown): value is string {
+  return (
+    isNonEmptyString(value) &&
+    (value.startsWith('file://') || isBundledExerciseAssetUri(value))
+  );
+}
+
 function isValidMediaItem(value: unknown): value is MediaItem {
   return (
     isRecord(value) &&
     isNonEmptyString(value.id) &&
     (value.type === 'image' || value.type === 'video') &&
-    isNonEmptyString(value.uri) &&
-    value.uri.startsWith('file://') &&
+    isValidExerciseAssetUri(value.uri) &&
     isOptionalNonNegativeNumber(value.width) &&
     isOptionalNonNegativeNumber(value.height) &&
     isOptionalNonNegativeNumber(value.duration)
@@ -520,8 +657,7 @@ function isValidExerciseCover(value: unknown): value is ExerciseCover {
   return (
     isRecord(value) &&
     isNonEmptyString(value.id) &&
-    isNonEmptyString(value.uri) &&
-    value.uri.startsWith('file://') &&
+    isValidExerciseAssetUri(value.uri) &&
     isOptionalNonNegativeNumber(value.width) &&
     isOptionalNonNegativeNumber(value.height)
   );
@@ -588,7 +724,12 @@ function isValidState(value: unknown): value is AppState {
     typeof settings.hiitWeeklyGoal === 'number' &&
     Number.isInteger(settings.hiitWeeklyGoal) &&
     settings.hiitWeeklyGoal >= 0 &&
+    typeof settings.fastingGoalHours === 'number' &&
+    Number.isInteger(settings.fastingGoalHours) &&
+    settings.fastingGoalHours >= MIN_FASTING_GOAL_HOURS &&
+    settings.fastingGoalHours <= MAX_FASTING_GOAL_HOURS &&
     isValidWaterSettings(settings.water) &&
+    isValidDailyStepReminderSettings(settings.dailyStepReminder) &&
     Array.isArray(value.muscleGroups) &&
     value.muscleGroups.every(isValidMuscleGroup) &&
     Array.isArray(value.exercises) &&
@@ -669,13 +810,56 @@ function migrateLegacyState(value: unknown): unknown {
       dailyStepGoal: settings.dailyStepGoal,
       strengthSessions: settings.strengthSessions,
       hiitWeeklyGoal: settings.hiitWeeklyGoal ?? settings.heatWeeklyGoal,
+      fastingGoalHours: settings.fastingGoalHours ?? DEFAULT_FASTING_GOAL_HOURS,
       water: settings.water,
+      dailyStepReminder: {
+        ...DEFAULT_DAILY_STEP_REMINDER_SETTINGS,
+        ...(isRecord(settings.dailyStepReminder)
+          ? settings.dailyStepReminder
+          : {}),
+      },
     },
     muscleGroups: value.muscleGroups,
     exercises: value.exercises,
     dailyRecords: value.dailyRecords,
     weeklyRecords,
     fasting: value.fasting,
+  };
+}
+
+function addDefaultFastingGoal(value: unknown): unknown {
+  if (!isRecord(value) || !isRecord(value.settings)) {
+    return value;
+  }
+
+  if (value.settings.fastingGoalHours !== undefined) {
+    return value;
+  }
+
+  return {
+    ...value,
+    settings: {
+      ...value.settings,
+      fastingGoalHours: DEFAULT_FASTING_GOAL_HOURS,
+    },
+  };
+}
+
+function addDefaultDailyStepReminder(value: unknown): unknown {
+  if (!isRecord(value) || !isRecord(value.settings)) {
+    return value;
+  }
+
+  if (value.settings.dailyStepReminder !== undefined) {
+    return value;
+  }
+
+  return {
+    ...value,
+    settings: {
+      ...value.settings,
+      dailyStepReminder: { ...DEFAULT_DAILY_STEP_REMINDER_SETTINGS },
+    },
   };
 }
 
@@ -698,12 +882,23 @@ function parsePersistedStateWithMigration(
     throw new Error('La versión de los datos guardados no es compatible.');
   }
 
-  const needsPersistence = parsed.schemaVersion === LEGACY_STORAGE_SCHEMA_VERSION;
-  const state = needsPersistence
-    ? migrateLegacyState(parsed.state)
-    : parsed.schemaVersion === STORAGE_SCHEMA_VERSION
-      ? parsed.state
-      : null;
+  const needsPersistence =
+    parsed.schemaVersion === LEGACY_STORAGE_SCHEMA_VERSION ||
+    parsed.schemaVersion === FASTING_GOAL_STORAGE_SCHEMA_VERSION ||
+    parsed.schemaVersion === PREVIOUS_STORAGE_SCHEMA_VERSION ||
+    parsed.schemaVersion === DAILY_STEP_REMINDER_STORAGE_SCHEMA_VERSION;
+  const state =
+    parsed.schemaVersion === LEGACY_STORAGE_SCHEMA_VERSION
+      ? addDefaultDailyStepReminder(migrateLegacyState(parsed.state))
+      : parsed.schemaVersion === FASTING_GOAL_STORAGE_SCHEMA_VERSION
+        ? addDefaultDailyStepReminder(addDefaultFastingGoal(parsed.state))
+        : parsed.schemaVersion === PREVIOUS_STORAGE_SCHEMA_VERSION
+          ? addDefaultDailyStepReminder(parsed.state)
+          : parsed.schemaVersion === DAILY_STEP_REMINDER_STORAGE_SCHEMA_VERSION
+            ? addDefaultDailyStepReminder(parsed.state)
+            : parsed.schemaVersion === STORAGE_SCHEMA_VERSION
+              ? parsed.state
+              : null;
 
   if (!isValidState(state)) {
     throw new Error('La versión de los datos guardados no es compatible.');
@@ -750,7 +945,10 @@ export async function loadAppState(
 
   const persisted = parsePersistedStateWithMigration(rawValue);
   const migratedState = migrateToFixedMuscleGroupCatalog(persisted.state);
-  const normalizedState = normalizeExerciseCovers(migratedState);
+  const seededState = persisted.needsPersistence
+    ? addMissingDefaultExercises(migratedState, now.toISOString())
+    : migratedState;
+  const normalizedState = normalizeExerciseCovers(seededState);
   const state = ensureCurrentPeriods(normalizedState, now);
 
   if (persisted.needsPersistence || state !== persisted.state) {

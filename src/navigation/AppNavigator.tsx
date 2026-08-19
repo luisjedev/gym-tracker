@@ -13,6 +13,7 @@ import {
   SettingsScreen,
   StorageErrorScreen,
 } from '../screens';
+import { NavigationIcon } from '../components/icons';
 import { useAppState } from '../state/AppStateContext';
 import { colors } from '../theme';
 import type { RootTabParamList } from './types';
@@ -49,6 +50,9 @@ export default function AppNavigator() {
         screenOptions={{
           headerShown: false,
           tabBarActiveBackgroundColor: colors.surfaceRaised,
+          tabBarIconStyle: {
+            marginTop: 2,
+          },
           tabBarActiveTintColor: colors.accent,
           tabBarInactiveTintColor: colors.textMuted,
           tabBarLabelStyle: {
@@ -73,22 +77,42 @@ export default function AppNavigator() {
         <Tab.Screen
           component={HomeScreen}
           name="Home"
-          options={{ tabBarLabel: 'Inicio' }}
+          options={{
+            tabBarIcon: ({ color, size }) => (
+              <NavigationIcon color={color} name="home" size={size} />
+            ),
+            tabBarLabel: 'Inicio',
+          }}
         />
         <Tab.Screen
           component={ExercisesScreen}
           name="Exercises"
-          options={{ tabBarLabel: 'Ejercicios' }}
+          options={{
+            tabBarIcon: ({ color, size }) => (
+              <NavigationIcon color={color} name="exercises" size={size} />
+            ),
+            tabBarLabel: 'Ejercicios',
+          }}
         />
         <Tab.Screen
           component={HistoryScreen}
           name="History"
-          options={{ tabBarLabel: 'Historial' }}
+          options={{
+            tabBarIcon: ({ color, size }) => (
+              <NavigationIcon color={color} name="history" size={size} />
+            ),
+            tabBarLabel: 'Historial',
+          }}
         />
         <Tab.Screen
           component={SettingsScreen}
           name="Settings"
-          options={{ tabBarLabel: 'Ajustes' }}
+          options={{
+            tabBarIcon: ({ color, size }) => (
+              <NavigationIcon color={color} name="settings" size={size} />
+            ),
+            tabBarLabel: 'Ajustes',
+          }}
         />
       </Tab.Navigator>
     </NavigationContainer>

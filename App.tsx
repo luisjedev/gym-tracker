@@ -8,15 +8,22 @@ import {
 
 export type AppProps = Pick<
   AppStateProviderProps,
-  'media' | 'storage' | 'now' | 'notifications'
+  'media' | 'storage' | 'now' | 'notifications' | 'stepNotifications'
 > & Record<string, unknown>;
 
-export default function App({ media, storage, now, notifications }: AppProps = {}) {
+export default function App({
+  media,
+  storage,
+  now,
+  notifications,
+  stepNotifications,
+}: AppProps = {}) {
   return (
     <AppStateProvider
       media={media}
       now={now}
       notifications={notifications}
+      stepNotifications={stepNotifications}
       storage={storage}
     >
       <>
