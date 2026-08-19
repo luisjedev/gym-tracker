@@ -338,7 +338,7 @@ describe('Gym Tracker app flow', () => {
     expect(screen.queryByText('Ayuno finalizado')).toBeNull();
     await rendered.unmount();
 
-    currentNow = new Date(2026, 7, 17, 0, 30, 0);
+    currentNow = new Date(2026, 7, 17, 6, 30, 0);
     rendered = await render(<App storage={storage} now={now} />);
     await waitFor(() => expect(screen.getByRole('button', { name: 'Parar ayuno' })).toBeTruthy());
     await confirmStopFasting();
@@ -348,8 +348,8 @@ describe('Gym Tracker app flow', () => {
 
     expect(screen.getByText('Ayuno finalizado')).toBeTruthy();
     expect(screen.getByText('Inicio: 16/08/2026, 22:30')).toBeTruthy();
-    expect(screen.getByText('Fin: 17/08/2026, 00:30')).toBeTruthy();
-    expect(screen.getByText('Duración: 2 h 0 min')).toBeTruthy();
+    expect(screen.getByText('Fin: 17/08/2026, 06:30')).toBeTruthy();
+    expect(screen.getByText('Duración: 8 h 0 min')).toBeTruthy();
     expect(screen.queryByText('Ayuno activo')).toBeNull();
 
     await rendered.unmount();
@@ -1195,6 +1195,26 @@ describe('Gym Tracker app flow', () => {
     expect(screen.getByLabelText('Lunes: 15 horas, objetivo de 14 horas cumplido')).toBeTruthy();
   });
 
+  it('discards a fasting shorter than eight hours instead of saving it', async () => {
+    const storage = new MemoryStorage();
+    let currentNow = new Date(2026, 7, 17, 20, 0, 0);
+    const now = () => currentNow;
+
+    const rendered = await render(<App storage={storage} now={now} />);
+    await waitForHome();
+    await fireEvent.press(screen.getByRole('button', { name: 'Empezar ayuno' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Parar ayuno' })).toBeTruthy());
+
+    currentNow = new Date(2026, 7, 18, 3, 59, 0);
+    await confirmStopFasting();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Empezar ayuno' })).toBeTruthy());
+
+    await fireEvent.press(screen.getByRole('button', { name: /Historial/ }));
+    await waitFor(() => expect(screen.getByText('Aún no hay historial')).toBeTruthy());
+    expect(screen.queryByText('Ayuno finalizado')).toBeNull();
+    await rendered.unmount();
+  });
+
   it('keeps the active fasting duration until the app is reopened or resumed', async () => {
     jest.useFakeTimers();
 
@@ -1262,19 +1282,19 @@ describe('Gym Tracker app flow', () => {
     await fireEvent.press(screen.getByRole('button', { name: 'Empezar ayuno' }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Parar ayuno' })).toBeTruthy());
 
-    currentNow = new Date(2026, 7, 18, 0, 30, 0);
+    currentNow = new Date(2026, 7, 18, 6, 30, 0);
     await confirmStopFasting();
     await waitFor(() => expect(screen.getByRole('button', { name: 'Empezar ayuno' })).toBeTruthy());
 
     await fireEvent.press(screen.getByRole('button', { name: /Historial/ }));
     await waitFor(() => expect(screen.getByText('Ayunos finalizados')).toBeTruthy());
-    expect(screen.getByText('Duración: 2 h 0 min')).toBeTruthy();
+    expect(screen.getByText('Duración: 8 h 0 min')).toBeTruthy();
 
     await firstRender.unmount();
     const rehydrated = await render(<App storage={storage} now={() => currentNow} />);
     await waitFor(() => expect(screen.getByRole('button', { name: 'Empezar ayuno' })).toBeTruthy());
     await fireEvent.press(screen.getByRole('button', { name: /Historial/ }));
-    await waitFor(() => expect(screen.getByText('Duración: 2 h 0 min')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('Duración: 8 h 0 min')).toBeTruthy());
     await rehydrated.unmount();
   });
 
@@ -1923,14 +1943,20 @@ describe('Gym Tracker app flow', () => {
       {
         id: 'fasting-old',
         startedAt: '2026-08-10T08:00:00.000Z',
-        endedAt: '2026-08-10T09:00:00.000Z',
-        durationMinutes: 60,
+        endedAt: '2026-08-10T18:00:00.000Z',
+        durationMinutes: 600,
+      },
+      {
+        id: 'fasting-short',
+        startedAt: '2026-08-15T08:00:00.000Z',
+        endedAt: '2026-08-15T15:00:00.000Z',
+        durationMinutes: 420,
       },
       {
         id: 'fasting-last',
         startedAt: '2026-08-16T08:00:00.000Z',
-        endedAt: '2026-08-16T10:05:00.000Z',
-        durationMinutes: 125,
+        endedAt: '2026-08-16T20:05:00.000Z',
+        durationMinutes: 725,
       },
     ];
     await saveAppState(storage, state);
@@ -1947,8 +1973,8 @@ describe('Gym Tracker app flow', () => {
     expect(screen.getByText('Semanas de fuerza cumplidas: 1 de 2 (50%)')).toBeTruthy();
     expect(screen.getByText('Sesiones HIIT realizadas: 2')).toBeTruthy();
     expect(screen.getByText('Semanas de HIIT cumplidas: 1 de 2 (50%)')).toBeTruthy();
-    expect(screen.getByText('Último ayuno: 2 h 5 min')).toBeTruthy();
-    expect(screen.getByText('Media de ayunos: 1 h 33 min')).toBeTruthy();
+    expect(screen.getByText('Último ayuno: 12 h 5 min')).toBeTruthy();
+    expect(screen.getByText('Media de ayunos: 11 h 3 min')).toBeTruthy();
     expect(screen.getByText('Ayuno activo')).toBeTruthy();
     expect(screen.getByText('Cumplimiento general: 67%')).toBeTruthy();
     expect(screen.getByText('Unidades cumplidas: 4 de 6')).toBeTruthy();

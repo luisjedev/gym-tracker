@@ -239,6 +239,25 @@ describe('versioned local app state', () => {
     );
   });
 
+  it('discards persisted completed fastings shorter than eight hours', async () => {
+    const now = new Date(2026, 7, 17, 12, 0, 0);
+    const { payload, storage } = await createPersistedFixture(now);
+    payload.state.fasting.completed = [
+      {
+        id: 'fasting-short',
+        startedAt: '2026-08-17T08:00:00.000Z',
+        endedAt: '2026-08-17T15:00:00.000Z',
+        durationMinutes: 420,
+      },
+    ];
+    storage.value = JSON.stringify(payload);
+
+    const loaded = await loadAppState(storage, now);
+
+    expect(loaded.fasting.completed).toEqual([]);
+    expect(JSON.parse(storage.value ?? '{}').state.fasting.completed).toEqual([]);
+  });
+
   it('rejects persisted strength settings without assigned muscle groups', async () => {
     const now = new Date(2026, 7, 17, 12, 0, 0);
     const { payload, storage } = await createPersistedFixture(now);

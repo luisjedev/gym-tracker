@@ -91,8 +91,9 @@ describe('progress statistics', () => {
         createWeek('2026-08-10', 1, 1, 2, 1),
       ],
       [
-        createFasting('fasting-old', '2026-08-10T10:00:00.000Z', 60),
-        createFasting('fasting-last', '2026-08-19T10:00:00.000Z', 125),
+        createFasting('fasting-old', '2026-08-10T18:00:00.000Z', 600),
+        createFasting('fasting-short', '2026-08-18T15:00:00.000Z', 420),
+        createFasting('fasting-last', '2026-08-19T20:05:00.000Z', 725),
       ],
     );
 
@@ -143,8 +144,8 @@ describe('progress statistics', () => {
     });
     expect(statistics.fasting).toEqual({
       completedFastings: 2,
-      lastDurationMinutes: 125,
-      averageDurationMinutes: 93,
+      lastDurationMinutes: 725,
+      averageDurationMinutes: 663,
     });
     expect(statistics.compliance).toEqual({
       completedUnits: 4,

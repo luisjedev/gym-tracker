@@ -1,3 +1,4 @@
+import { isFastingLongEnough } from './fasting';
 import type { CompletedFasting, DailyRecord, WeeklyRecord } from './schema';
 
 export interface StepStatistics {
@@ -99,7 +100,10 @@ function getWeeklyGoalStatistics(
 function getFastingStatistics(
   completed: readonly CompletedFasting[],
 ): FastingStatistics {
-  const latestFasting = completed.reduce<CompletedFasting | null>(
+  const validFastings = completed.filter((fasting) =>
+    isFastingLongEnough(fasting.durationMinutes),
+  );
+  const latestFasting = validFastings.reduce<CompletedFasting | null>(
     (latest, fasting) => {
       if (!latest || Date.parse(fasting.endedAt) > Date.parse(latest.endedAt)) {
         return fasting;
@@ -109,16 +113,18 @@ function getFastingStatistics(
     },
     null,
   );
-  const totalMinutes = completed.reduce(
+  const totalMinutes = validFastings.reduce(
     (total, fasting) => total + fasting.durationMinutes,
     0,
   );
 
   return {
-    completedFastings: completed.length,
+    completedFastings: validFastings.length,
     lastDurationMinutes: latestFasting?.durationMinutes ?? null,
     averageDurationMinutes:
-      completed.length > 0 ? Math.round(totalMinutes / completed.length) : null,
+      validFastings.length > 0
+        ? Math.round(totalMinutes / validFastings.length)
+        : null,
   };
 }
 

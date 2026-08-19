@@ -10,7 +10,10 @@ import {
 } from 'react';
 import { AppState as ReactNativeAppState } from 'react-native';
 
-import { calculateFastingDurationMinutes } from '../storage/fasting';
+import {
+  calculateFastingDurationMinutes,
+  isFastingLongEnough,
+} from '../storage/fasting';
 import {
   defaultExerciseMediaAdapter,
   type ExerciseMediaAdapter,
@@ -704,24 +707,32 @@ export function AppStateProvider({
 
       const currentDate = now();
       const endedAt = currentDate.toISOString();
-      const completedFasting = {
-        id: createUniqueId(
-          'fasting',
-          currentState.fasting.completed.map((fasting) => fasting.id),
-        ),
-        startedAt: activeFasting.startedAt,
+      const durationMinutes = calculateFastingDurationMinutes(
+        activeFasting.startedAt,
         endedAt,
-        durationMinutes: calculateFastingDurationMinutes(
-          activeFasting.startedAt,
-          endedAt,
-        ),
-      };
+      );
+      const completedFasting = isFastingLongEnough(durationMinutes)
+        ? {
+            id: createUniqueId(
+              'fasting',
+              currentState.fasting.completed.map((fasting) => fasting.id),
+            ),
+            startedAt: activeFasting.startedAt,
+            endedAt,
+            durationMinutes,
+          }
+        : null;
+      const previousValidFastings = currentState.fasting.completed.filter((fasting) =>
+        isFastingLongEnough(fasting.durationMinutes),
+      );
 
       await persistState({
         ...currentState,
         fasting: {
           active: null,
-          completed: [completedFasting, ...currentState.fasting.completed],
+          completed: completedFasting
+            ? [completedFasting, ...previousValidFastings]
+            : previousValidFastings,
         },
       });
       setCurrentTime(currentDate);

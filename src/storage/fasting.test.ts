@@ -148,23 +148,29 @@ describe('fasting calculations', () => {
     ).toBe(120);
   });
 
-  it('averages only completed fasting durations', () => {
+  it('ignores fasts shorter than eight hours when calculating the average', () => {
     expect(
       getAverageFastingDurationMinutes([
         {
-          id: 'fasting-1',
+          id: 'fasting-long',
           startedAt: '2026-08-17T08:00:00.000Z',
-          endedAt: '2026-08-17T10:00:00.000Z',
-          durationMinutes: 120,
+          endedAt: '2026-08-17T18:00:00.000Z',
+          durationMinutes: 600,
         },
         {
-          id: 'fasting-2',
+          id: 'fasting-short',
           startedAt: '2026-08-18T08:00:00.000Z',
-          endedAt: '2026-08-18T09:00:00.000Z',
-          durationMinutes: 60,
+          endedAt: '2026-08-18T15:00:00.000Z',
+          durationMinutes: 420,
+        },
+        {
+          id: 'fasting-boundary',
+          startedAt: '2026-08-19T08:00:00.000Z',
+          endedAt: '2026-08-19T16:00:00.000Z',
+          durationMinutes: 480,
         },
       ]),
-    ).toBe(90);
+    ).toBe(540);
     expect(getAverageFastingDurationMinutes([])).toBeNull();
   });
 });

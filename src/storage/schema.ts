@@ -9,6 +9,9 @@ const DAILY_STEP_REMINDER_STORAGE_SCHEMA_VERSION = 4;
 export const DEFAULT_DAILY_STEP_GOAL = 7_000;
 export const DEFAULT_HIIT_WEEKLY_GOAL = 1;
 export const DEFAULT_FASTING_GOAL_HOURS = 14;
+export const MIN_COMPLETED_FASTING_HOURS = 8;
+export const MIN_COMPLETED_FASTING_DURATION_MINUTES =
+  MIN_COMPLETED_FASTING_HOURS * 60;
 export const MIN_FASTING_GOAL_HOURS = 12;
 export const MAX_FASTING_GOAL_HOURS = 20;
 export const DEFAULT_WATER_SETTINGS = {
@@ -169,6 +172,23 @@ export interface AppState {
 export interface PersistedAppState {
   schemaVersion: typeof STORAGE_SCHEMA_VERSION;
   state: AppState;
+}
+
+function discardShortCompletedFastings(state: AppState): AppState {
+  const completed = state.fasting.completed.filter(
+    (fasting) =>
+      fasting.durationMinutes >= MIN_COMPLETED_FASTING_DURATION_MINUTES,
+  );
+
+  return completed.length === state.fasting.completed.length
+    ? state
+    : {
+        ...state,
+        fasting: {
+          ...state.fasting,
+          completed,
+        },
+      };
 }
 
 export const DEFAULT_MUSCLE_GROUPS: readonly MuscleGroup[] = [
@@ -926,7 +946,7 @@ export async function saveAppState(
 ): Promise<void> {
   const payload: PersistedAppState = {
     schemaVersion: STORAGE_SCHEMA_VERSION,
-    state,
+    state: discardShortCompletedFastings(state),
   };
   await storage.setItem(APP_STORAGE_KEY, JSON.stringify(payload));
 }
@@ -944,7 +964,9 @@ export async function loadAppState(
   }
 
   const persisted = parsePersistedStateWithMigration(rawValue);
-  const migratedState = migrateToFixedMuscleGroupCatalog(persisted.state);
+  const migratedState = migrateToFixedMuscleGroupCatalog(
+    discardShortCompletedFastings(persisted.state),
+  );
   const seededState = persisted.needsPersistence
     ? addMissingDefaultExercises(migratedState, now.toISOString())
     : migratedState;

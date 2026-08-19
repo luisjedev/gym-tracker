@@ -1,5 +1,6 @@
 import {
   DEFAULT_FASTING_GOAL_HOURS,
+  MIN_COMPLETED_FASTING_DURATION_MINUTES,
   formatDateKey,
   getMondayDateKey,
   type ActiveFasting,
@@ -15,6 +16,10 @@ export interface WeeklyFastingDay {
   date: string;
   status: FastingDayStatus;
   durationMinutes: number | null;
+}
+
+export function isFastingLongEnough(durationMinutes: number): boolean {
+  return durationMinutes >= MIN_COMPLETED_FASTING_DURATION_MINUTES;
 }
 
 export function calculateFastingDurationMinutes(
@@ -38,16 +43,20 @@ export function calculateFastingDurationMinutes(
 export function getAverageFastingDurationMinutes(
   completed: readonly CompletedFasting[],
 ): number | null {
-  if (completed.length === 0) {
+  const validFastings = completed.filter((fasting) =>
+    isFastingLongEnough(fasting.durationMinutes),
+  );
+
+  if (validFastings.length === 0) {
     return null;
   }
 
-  const totalMinutes = completed.reduce(
+  const totalMinutes = validFastings.reduce(
     (total, fasting) => total + fasting.durationMinutes,
     0,
   );
 
-  return Math.round(totalMinutes / completed.length);
+  return Math.round(totalMinutes / validFastings.length);
 }
 
 export function getFirstValidEatingTime(
@@ -118,11 +127,16 @@ export function getWeeklyFastingSummary(
       continue;
     }
 
-    startedDates.add(date);
     if (!isValidCompletedFasting(fasting)) {
+      startedDates.add(date);
       continue;
     }
 
+    if (!isFastingLongEnough(fasting.durationMinutes)) {
+      continue;
+    }
+
+    startedDates.add(date);
     const previousDuration = longestByStartDate.get(date);
     if (previousDuration === undefined || fasting.durationMinutes > previousDuration) {
       longestByStartDate.set(date, fasting.durationMinutes);

@@ -1,3 +1,4 @@
+import { isFastingLongEnough } from './fasting';
 import {
   getMondayDateKey,
   type CompletedFasting,
@@ -57,11 +58,13 @@ export function getWeeklyStepSummary(
 export function getHistoryFastings(
   completed: readonly CompletedFasting[],
 ): CompletedFasting[] {
-  return [...completed].sort((left, right) => {
-    const endDifference = Date.parse(right.endedAt) - Date.parse(left.endedAt);
+  return completed
+    .filter((fasting) => isFastingLongEnough(fasting.durationMinutes))
+    .sort((left, right) => {
+      const endDifference = Date.parse(right.endedAt) - Date.parse(left.endedAt);
 
-    return endDifference !== 0
-      ? endDifference
-      : right.id.localeCompare(left.id);
-  });
+      return endDifference !== 0
+        ? endDifference
+        : right.id.localeCompare(left.id);
+    });
 }
