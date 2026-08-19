@@ -1244,35 +1244,105 @@ function ExerciseCoverPreview({
   accessibilityLabel,
   cover,
   muscleGroupId,
+  onPress,
   testID,
 }: {
   accessibilityLabel?: string;
   cover: ExerciseCoverSource;
   muscleGroupId: string;
+  onPress?: () => void;
   testID: string;
 }) {
   const [isUnavailable, setIsUnavailable] = useState(false);
-
-  if (cover?.uri && !isUnavailable) {
-    return (
+  const previewContent =
+    cover?.uri && !isUnavailable ? (
       <Image
-        accessibilityLabel={accessibilityLabel}
+        accessible={onPress ? false : undefined}
+        accessibilityLabel={onPress ? undefined : accessibilityLabel}
         onError={() => setIsUnavailable(true)}
-        resizeMode="cover"
+        resizeMode="contain"
         source={getExerciseImageSource(cover.uri)}
         style={styles.exerciseCoverImage}
-        testID={testID}
+        testID={onPress ? `${testID}-image` : testID}
       />
+    ) : (
+      <View
+        style={styles.exerciseCoverPlaceholder}
+        testID={onPress ? `${testID}-placeholder` : testID}
+      >
+        <MuscleGroupIcon groupId={muscleGroupId} size={42} />
+        <Text style={styles.exerciseCoverText}>
+          {cover ? 'Portada no disponible' : 'Sin portada'}
+        </Text>
+      </View>
+    );
+
+  if (onPress) {
+    return (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={accessibilityLabel}
+        onPress={onPress}
+        style={({ pressed }) => [styles.exerciseCoverButton, pressed && styles.pressed]}
+        testID={testID}
+      >
+        {previewContent}
+      </Pressable>
     );
   }
 
+  return previewContent;
+}
+
+function ExerciseCoverViewer({
+  exerciseName,
+  onClose,
+  uri,
+}: {
+  exerciseName: string;
+  onClose: () => void;
+  uri: string;
+}) {
+  const [isUnavailable, setIsUnavailable] = useState(false);
+
   return (
-    <View style={styles.exerciseCoverPlaceholder} testID={testID}>
-      <MuscleGroupIcon groupId={muscleGroupId} size={42} />
-      <Text style={styles.exerciseCoverText}>
-        {cover ? 'Portada no disponible' : 'Sin portada'}
-      </Text>
-    </View>
+    <Modal
+      accessibilityViewIsModal
+      animationType="fade"
+      onRequestClose={onClose}
+      transparent
+      visible
+    >
+      <View style={styles.exerciseCoverViewerBackdrop} testID="exercise-cover-viewer">
+        <View style={styles.exerciseCoverViewerContent}>
+          {isUnavailable ? (
+            <MissingMediaState />
+          ) : (
+            <Image
+              accessibilityLabel={`Portada de ${exerciseName} ampliada`}
+              onError={() => setIsUnavailable(true)}
+              resizeMode="contain"
+              source={getExerciseImageSource(uri)}
+              style={styles.exerciseCoverViewerImage}
+              testID="exercise-cover-viewer-image"
+            />
+          )}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Cerrar vista previa"
+            onPress={onClose}
+            style={({ pressed }) => [
+              styles.secondaryButton,
+              styles.exerciseCoverViewerCloseButton,
+              pressed && styles.pressed,
+            ]}
+            testID="exercise-cover-viewer-close"
+          >
+            <Text style={styles.secondaryButtonText}>Cerrar</Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -1299,6 +1369,10 @@ export function ExercisesScreen() {
     route.params?.groupId ?? null,
   );
   const [selectedExerciseId, setSelectedExerciseId] = useState<string | null>(null);
+  const [selectedCoverPreview, setSelectedCoverPreview] = useState<{
+    exerciseName: string;
+    uri: string;
+  } | null>(null);
   const [isExerciseFormVisible, setIsExerciseFormVisible] = useState(false);
   const [exerciseName, setExerciseName] = useState('');
   const [exerciseDescription, setExerciseDescription] = useState('');
@@ -1327,6 +1401,7 @@ export function ExercisesScreen() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setSelectedGroupId(route.params?.groupId ?? null);
     setSelectedExerciseId(null);
+    setSelectedCoverPreview(null);
     setIsExerciseFormVisible(false);
   }, [route.params?.groupId]);
 
@@ -1370,6 +1445,7 @@ export function ExercisesScreen() {
   function openGroup(groupId: string) {
     setSelectedGroupId(groupId);
     setSelectedExerciseId(null);
+    setSelectedCoverPreview(null);
     setSelectedMediaId(null);
     setIsExerciseFormVisible(false);
     setCoverActionError(null);
@@ -1381,6 +1457,7 @@ export function ExercisesScreen() {
     navigation.setParams({ groupId: undefined });
     setSelectedGroupId(null);
     setSelectedExerciseId(null);
+    setSelectedCoverPreview(null);
     setSelectedMediaId(null);
     setIsExerciseFormVisible(false);
     setCoverActionError(null);
@@ -1389,6 +1466,7 @@ export function ExercisesScreen() {
   }
 
   function openExerciseForm() {
+    setSelectedCoverPreview(null);
     setExerciseName('');
     setExerciseDescription('');
     setExerciseCoverSelection(null);
@@ -1397,6 +1475,17 @@ export function ExercisesScreen() {
     setCoverSuccessMessage(null);
     setExerciseSuccessMessage(null);
     setIsExerciseFormVisible(true);
+  }
+
+  function openExerciseCoverPreview(exercise: Exercise) {
+    if (!exercise.cover?.uri) {
+      return;
+    }
+
+    setSelectedCoverPreview({
+      exerciseName: exercise.name,
+      uri: exercise.cover.uri,
+    });
   }
 
   async function requestCoverSelection(): Promise<ExerciseMediaSelection | null> {
@@ -2054,24 +2143,17 @@ export function ExercisesScreen() {
                 );
 
                 return (
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={`Abrir detalle de ${exercise.name}`}
-                    key={exercise.id}
-                    onPress={() => {
-                      setSelectedExerciseId(exercise.id);
-                      setIsExerciseEditVisible(false);
-                      setIsExerciseDeleteConfirmationVisible(false);
-                      setExerciseEditError(null);
-                      setExerciseActionError(null);
-                    }}
-                    style={({ pressed }) => [styles.exerciseCard, pressed && styles.pressed]}
-                  >
+                  <View key={exercise.id} style={styles.exerciseCard} testID={`exercise-card-${exercise.id}`}>
                     <ExerciseCoverPreview
-                      accessibilityLabel={`Portada de ${exercise.name}`}
+                      accessibilityLabel={`Ver portada de ${exercise.name}`}
                       cover={exercise.cover}
                       key={exercise.cover?.uri ?? 'no-cover'}
                       muscleGroupId={exercise.muscleGroupId}
+                      onPress={
+                        exercise.cover
+                          ? () => openExerciseCoverPreview(exercise)
+                          : undefined
+                      }
                       testID={`exercise-cover-${exercise.id}`}
                     />
                     <View style={styles.exerciseCardCopy}>
@@ -2087,13 +2169,36 @@ export function ExercisesScreen() {
                         {exercise.description || 'Sin descripción añadida.'}
                       </Text>
                     </View>
-                    <Text style={styles.mutedText}>Ver detalle</Text>
-                  </Pressable>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Ver detalles de ${exercise.name}`}
+                      onPress={() => {
+                        setSelectedCoverPreview(null);
+                        setSelectedExerciseId(exercise.id);
+                        setIsExerciseEditVisible(false);
+                        setIsExerciseDeleteConfirmationVisible(false);
+                        setExerciseEditError(null);
+                        setExerciseActionError(null);
+                      }}
+                      style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}
+                      testID={`exercise-details-${exercise.id}`}
+                    >
+                      <Text style={styles.secondaryButtonText}>Ver detalles</Text>
+                    </Pressable>
+                  </View>
                 );
               })}
             </View>
           )}
         </Card>
+        {selectedCoverPreview ? (
+          <ExerciseCoverViewer
+            exerciseName={selectedCoverPreview.exerciseName}
+            key={selectedCoverPreview.uri}
+            onClose={() => setSelectedCoverPreview(null)}
+            uri={selectedCoverPreview.uri}
+          />
+        ) : null}
       </Screen>
     );
   }
@@ -4272,6 +4377,25 @@ const styles = StyleSheet.create({
     height: 260,
     width: '100%',
   },
+  exerciseCoverViewerBackdrop: {
+    backgroundColor: colors.overlay,
+    flex: 1,
+    padding: 20,
+  },
+  exerciseCoverViewerContent: {
+    alignItems: 'center',
+    flex: 1,
+    gap: 16,
+    justifyContent: 'center',
+    width: '100%',
+  },
+  exerciseCoverViewerImage: {
+    flex: 1,
+    width: '100%',
+  },
+  exerciseCoverViewerCloseButton: {
+    minWidth: 140,
+  },
   exerciseCard: {
     backgroundColor: colors.surfaceRaised,
     borderColor: colors.borderStrong,
@@ -4280,19 +4404,27 @@ const styles = StyleSheet.create({
     gap: 10,
     padding: 10,
   },
+  exerciseCoverButton: {
+    alignSelf: 'stretch',
+    borderRadius: 10,
+    overflow: 'hidden',
+  },
   exerciseCoverPlaceholder: {
     alignItems: 'center',
-    aspectRatio: 2.2,
     backgroundColor: colors.surfaceSunken,
     borderRadius: 10,
+    height: 200,
     justifyContent: 'center',
+    maxWidth: '100%',
     overflow: 'hidden',
     width: '100%',
   },
   exerciseCoverImage: {
-    aspectRatio: 2.2,
     backgroundColor: colors.surfaceSunken,
     borderRadius: 10,
+    flexShrink: 1,
+    height: 200,
+    maxWidth: '100%',
     overflow: 'hidden',
     width: '100%',
   },
